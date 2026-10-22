@@ -6,3 +6,6 @@ node_modules
 target/
 contract/target/
 dist/
+
+.xwin-cache/
+
