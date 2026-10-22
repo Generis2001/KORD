@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mandate · Autonomous Business Agent on NEAR</title>
+  <title>Mandate · Autonomous Business Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-theme">
   <div class="app-container">
     
-    <!-- Left Sidebar -->
+    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <button class="new-chat-btn" id="newMandateBtn" title="Create New Business Mandate">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>New Mandate</span>
+        <button class="new-chat-btn" id="newChatBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>New Chat</span>
         </button>
         <button class="sidebar-toggle-btn" id="sidebarCloseBtn" title="Close sidebar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
@@ -25,19 +25,15 @@
       </div>
 
       <div class="sidebar-content">
-        <div class="nav-section-title">Business Agent Controls</div>
         <nav class="sidebar-nav">
-          <button class="nav-item active" id="navConsole">
+          <button class="nav-item active" id="navChat">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            <span>Agent Console</span>
+            <span>Agent Chat</span>
           </button>
-          <button class="nav-item" id="navPolicy">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-            <span>Spending Limits & Policy</span>
-          </button>
-          <button class="nav-item" id="navAgents">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-            <span>Delegated Agents</span>
+          <button class="nav-item" id="navAllowlist">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
+            <span>Payable Allowlist</span>
+            <span class="allowlist-count-badge" id="allowlistBadge">4</span>
           </button>
           <button class="nav-item" id="navLedger">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
@@ -45,29 +41,32 @@
           </button>
         </nav>
 
-        <div class="nav-section-title">Recent Directives</div>
-        <div class="chat-history-list" id="chatHistoryList">
-          <div class="history-item active" data-directive="Cross-Border Payments Market Research">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
-            <span>Stablecoin Pricing Research</span>
+        <div class="nav-section-title">Quick Actions</div>
+        <div class="chat-history-list">
+          <div class="history-item" data-action="Pay 7 NEAR to zeal.testnet (add to allowlist)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            <span>Pay 7 NEAR to zeal.testnet</span>
           </div>
-          <div class="history-item" data-directive="Security Guardrail Over-Budget Interception">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            <span>Over-Budget Defense ($8 Cap Test)</span>
+          <div class="history-item" data-action="Fund treasury with 10 NEAR">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Fund Treasury (+10 NEAR)</span>
           </div>
-          <div class="history-item" data-directive="NEAR Escrow Payout Audit">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon></svg>
-            <span>NEAR Escrow Contract State</span>
+          <div class="history-item" data-action="Show my payable allowlist">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>
+            <span>View Approved Payees</span>
           </div>
         </div>
       </div>
 
       <div class="sidebar-footer">
-        <div class="user-badge" id="openPolicyFooter">
+        <div class="user-badge" id="openFundModalBtn" title="Click to fund treasury">
           <div class="user-avatar">M</div>
           <div class="user-info">
-            <span class="user-name">Mandate Protocol</span>
-            <span class="user-role">NEAR Testnet · Escrow Active</span>
+            <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+              <span class="user-name">Treasury Balance</span>
+              <span class="btn-mini-fund">+ Fund</span>
+            </div>
+            <span class="user-role" id="footerTreasuryBalance">13.39 NEAR</span>
           </div>
         </div>
       </div>
@@ -75,81 +74,62 @@
 
     <!-- Main Panel -->
     <main class="main-panel">
-      <!-- Top Bar -->
+      <!-- Clean Minimalist Header (All clutter and badges removed) -->
       <header class="top-nav">
         <div class="left-nav">
           <button class="sidebar-open-btn" id="sidebarOpenBtn" title="Open sidebar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          
-          <div class="model-selector-pill" id="topContractInfo">
-            <span class="model-name">Mandate Business Agent</span>
-            <span class="model-badge">NEAR Rust Escrow</span>
-          </div>
+          <span class="brand-title">Mandate</span>
         </div>
 
         <div class="right-nav">
-          <div class="status-pill testnet-online">
-            <span class="pulse-dot"></span>
-            <span>NEAR Testnet</span>
-          </div>
-          <div class="status-pill repo-private">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <span>Private Repo</span>
-          </div>
-          <button class="btn-subtle" id="topBtnNewMandate">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>New Mandate</span>
-          </button>
+          <button class="header-link-btn" id="headerAllowlistBtn">Payable Allowlist</button>
+          <button class="header-link-btn" id="headerLedgerBtn">Ledger</button>
         </div>
       </header>
 
       <!-- Chat Canvas -->
       <div class="chat-container" id="chatContainer">
         
-        <!-- Hero Initial Screen -->
+        <!-- Clean Hero Screen -->
         <div class="hero-screen" id="heroScreen">
-          <div class="hero-logo-box">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-            </svg>
-          </div>
-          <h1 class="hero-title">What business directive would you like Mandate to execute?</h1>
+          <h1 class="hero-title">How can I help you today?</h1>
           <p class="hero-subtitle">
-            Mandate is an autonomous business agent that <strong>delegates work</strong> to specialized agents, <strong>verifies deliverables</strong> against acceptance rubrics, and <strong>enforces your spending limits</strong> on NEAR Protocol.
+            Autonomous payments, payable allowlists, and verified business tasks on NEAR.
           </p>
 
-          <!-- 4 Action Suggestion Cards -->
+          <!-- 4 Clean Action Cards -->
           <div class="suggestions-grid">
-            <div class="suggestion-card" data-prompt="Research competitive market pricing and corridor coverage for cross-border stablecoin payments">
+            <div class="suggestion-card" data-prompt="Pay 7 NEAR to zeal.testnet (add to allowlist)">
+              <div class="card-icon">💳</div>
+              <div class="card-text">
+                <span class="card-title">Pay 7 NEAR to zeal.testnet</span>
+                <span class="card-desc">Adds to allowlist and executes on-chain transfer</span>
+              </div>
+            </div>
+
+            <div class="suggestion-card" data-prompt="Fund treasury with 10 NEAR">
+              <div class="card-icon">💰</div>
+              <div class="card-text">
+                <span class="card-title">Fund Treasury</span>
+                <span class="card-desc">Deposit funds to increase your spending balance</span>
+              </div>
+            </div>
+
+            <div class="suggestion-card" data-prompt="Show my payable allowlist">
+              <div class="card-icon">📋</div>
+              <div class="card-text">
+                <span class="card-title">View Payable Allowlist</span>
+                <span class="card-desc">Inspect all approved recipient accounts</span>
+              </div>
+            </div>
+
+            <div class="suggestion-card" data-prompt="Research competitor pricing and corridor coverage for cross-border stablecoin payments">
               <div class="card-icon">💼</div>
               <div class="card-text">
-                <span class="card-title">Delegate Market Research Mandate</span>
-                <span class="card-desc">Assigns Researcher agent, audits deliverable, and settles $4.00 within $5.00 cap</span>
-              </div>
-            </div>
-
-            <div class="suggestion-card" data-prompt="Test spending limit enforcement against over-budget $8.00 request and rogue address">
-              <div class="card-icon">🛡️</div>
-              <div class="card-text">
-                <span class="card-title">Enforce Spending Limits (Attack Test)</span>
-                <span class="card-desc">Simulate worker attempting to charge above $5.00 cap or bypass allowlist</span>
-              </div>
-            </div>
-
-            <div class="suggestion-card" data-prompt="Audit competitor pricing models for decentralized cloud storage protocols">
-              <div class="card-icon">📊</div>
-              <div class="card-text">
-                <span class="card-title">Cloud Storage Pricing Audit</span>
-                <span class="card-desc">Decompose analysis task, verify sections & payout via Rust escrow</span>
-              </div>
-            </div>
-
-            <div class="suggestion-card" data-prompt="Show spending policy limits and active agent workforce">
-              <div class="card-icon">🤖</div>
-              <div class="card-text">
-                <span class="card-title">Inspect Agent Workforce & Caps</span>
-                <span class="card-desc">View Researcher, Analyst, Verifier roles and configured budget limits</span>
+                <span class="card-title">Commission Research Task</span>
+                <span class="card-desc">Delegates to Researcher, audits work, pays within $5 cap</span>
               </div>
             </div>
           </div>
@@ -159,22 +139,17 @@
         <div class="messages-stream" id="messagesStream"></div>
       </div>
 
-      <!-- Floating Bottom Input Bar -->
+      <!-- Bottom Input Bar -->
       <footer class="input-area">
         <div class="input-wrapper">
           <div class="input-box">
-            <div class="mode-tag" id="modeSelector" title="Click to toggle execution mode">
-              <span id="currentModeLabel">Escrow (On-Chain)</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </div>
-            
             <textarea 
               id="promptInput" 
-              placeholder="Enter a business directive (e.g. 'Research pricing models for stablecoin APIs')..." 
+              placeholder="Ask Mandate, or type: 'Pay 7 NEAR to zeal.testnet (add to allowlist)'..." 
               rows="1"
             ></textarea>
 
-            <button class="send-btn" id="sendBtn" title="Launch Mandate">
+            <button class="send-btn" id="sendBtn" title="Send command">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <line x1="12" y1="19" x2="12" y2="5"></line>
                 <polyline points="5 12 12 5 19 12"></polyline>
@@ -182,7 +157,7 @@
             </button>
           </div>
           <div class="input-disclaimer">
-            Mandate enforces user-defined spending limits · Deliverables verified before release · NEAR Escrow Contract Active
+            Mandate enforces user-defined spending limits · Deliverables verified before payment
           </div>
         </div>
       </footer>
@@ -190,89 +165,84 @@
 
   </div>
 
-  <!-- MODAL: Create New Mandate (User-Defined Parameters) -->
-  <div class="modal-backdrop" id="createMandateModal">
+  <!-- TAB MODAL: Payable Allowlist -->
+  <div class="modal-backdrop" id="allowlistModal">
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <h2>Configure New Business Mandate</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
+          <h2>Payable Allowlist</h2>
         </div>
-        <button class="modal-close" id="closeCreateMandateModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <button class="modal-close" id="closeAllowlistModal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
 
-      <div class="modal-body-form">
-        <div class="form-group">
-          <label>Business Goal / Directive</label>
-          <textarea id="mandateGoalInput" rows="3" class="form-control" placeholder="e.g. Research competitive pricing models for stablecoin remittance APIs..."></textarea>
-        </div>
+      <div class="allowlist-add-bar">
+        <input type="text" id="newAccountInput" placeholder="Enter NEAR account ID (e.g. zeal.testnet)" class="form-control">
+        <input type="text" id="newAccountLabel" placeholder="Label / Purpose (optional)" class="form-control short">
+        <button class="btn-primary" id="addAccountBtn">Add to Allowlist</button>
+      </div>
 
-        <div class="form-row">
-          <div class="form-group half">
-            <label>Total Mandate Budget ($)</label>
-            <input type="number" id="mandateBudgetInput" class="form-control" value="20.00" step="1.00" min="1.00">
-          </div>
-          <div class="form-group half">
-            <label>Per-Agent Spending Cap ($)</label>
-            <input type="number" id="mandateCapInput" class="form-control" value="5.00" step="1.00" min="1.00">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Acceptance Rubric & Verification Criteria</label>
-          <div class="rubric-pills">
-            <span class="rubric-pill">Min 200 characters</span>
-            <span class="rubric-pill">Required: 'pricing'</span>
-            <span class="rubric-pill">Required: 'target customers'</span>
-            <span class="rubric-pill">Required: 'advantage'</span>
-            <span class="rubric-pill">Min 2 evidence citations</span>
-          </div>
-        </div>
+      <div class="allowlist-items" id="allowlistItemsContainer">
+        <div class="loading-spinner">Loading approved accounts...</div>
       </div>
 
       <div class="modal-footer">
-        <span class="network-badge">Settlement: NEAR Testnet Escrow</span>
-        <button class="btn-primary" id="launchConfiguredMandateBtn">Launch Mandate</button>
+        <span class="network-badge">Accounts approved to receive payments</span>
+        <button class="btn-subtle" onclick="document.getElementById('allowlistModal').classList.remove('open')">Done</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: Spending Policy & Delegated Agents -->
-  <div class="modal-backdrop" id="policyModal">
+  <!-- MODAL: Fund Treasury -->
+  <div class="modal-backdrop" id="fundModal">
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          <h2>Spending Limits & Delegated Workforce</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          <h2>Fund Treasury</h2>
         </div>
-        <button class="modal-close" id="closePolicyModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <button class="modal-close" id="closeFundModal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
 
-      <div class="accounts-grid" id="policyAgentsList">
-        <div class="loading-spinner">Loading delegated workforce...</div>
+      <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:12px;">
+        <p style="font-size:13.5px; color:#b4b4b4; line-height:1.5;">
+          Add funds to your autonomous treasury account on NEAR testnet:
+          <br><code style="font-family:var(--font-mono); color:#10a37f;">mandate-generis-treasury.testnet</code>
+        </p>
+
+        <div style="display:flex; gap:8px;">
+          <button class="btn-subtle" onclick="fundDirectly(5)">+ 5 NEAR</button>
+          <button class="btn-subtle" onclick="fundDirectly(10)">+ 10 NEAR</button>
+          <button class="btn-subtle" onclick="fundDirectly(25)">+ 25 NEAR</button>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input type="number" id="customFundInput" placeholder="Amount in NEAR (e.g. 10)" class="form-control" step="1" min="1">
+          <button class="btn-primary" id="confirmFundBtn">Deposit Funds</button>
+        </div>
       </div>
 
       <div class="modal-footer">
-        <span class="network-badge">Policy: Strict Enforcement Active</span>
-        <button class="btn-subtle" onclick="document.getElementById('policyModal').classList.remove('open')">Close</button>
+        <span class="network-badge">Current Balance: <span id="modalTreasuryBal">13.39 NEAR</span></span>
+        <button class="btn-subtle" onclick="document.getElementById('fundModal').classList.remove('open')">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: Full Settlement Audit Ledger -->
+  <!-- TAB MODAL: Settlement Ledger -->
   <div class="modal-backdrop" id="ledgerModal">
     <div class="modal-card wide">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-          <h2>Mandate Settlement Audit Ledger</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+          <h2>Settlement Ledger</h2>
         </div>
         <button class="modal-close" id="closeLedgerModal">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
 
@@ -281,23 +251,23 @@
           <thead>
             <tr>
               <th>ID</th>
-              <th>Task / Mandate</th>
+              <th>Task / Context</th>
               <th>Recipient</th>
               <th>Amount</th>
               <th>Status</th>
               <th>On-Chain Tx</th>
-              <th>Policy / Guardrail Decision</th>
+              <th>Decision / Note</th>
             </tr>
           </thead>
           <tbody id="ledgerTableBody">
-            <tr><td colspan="7" class="loading-td">Loading audit records...</td></tr>
+            <tr><td colspan="7" class="loading-td">Loading records...</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- Toast Notification -->
+  <!-- Toast -->
   <div class="toast-notify" id="toastNotify">Copied to clipboard</div>
 
   <script src="app.js"></script>

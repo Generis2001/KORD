@@ -10,10 +10,16 @@ export interface PaymentRow {
   recipient: string;
   amount: Cents;
   status: PaymentStatus;
-  onchain: boolean; // true only when a real network transaction was confirmed
+  onchain: boolean;
   network: string | null;
   txHash: string | null;
   note: string | null;
+}
+
+export interface AllowlistEntry {
+  accountId: string;
+  label: string;
+  addedAt: string;
 }
 
 export class Store {
@@ -39,7 +45,87 @@ export class Store {
       CREATE TABLE IF NOT EXISTS audit_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT, mandate_id TEXT NOT NULL, event TEXT NOT NULL,
         detail TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS allowlist (
+        account_id TEXT PRIMARY KEY, label TEXT NOT NULL,
+        added_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS treasury_state (
+        id INTEGER PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        balance_near REAL NOT NULL,
+        last_updated TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS treasury_ledger (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        amount_near REAL NOT NULL,
+        balance_after REAL NOT NULL,
+        note TEXT,
+        tx_hash TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
     `);
+
+    // Seed initial allowlist if empty
+    const count = (this.db.prepare("SELECT COUNT(*) as c FROM allowlist").get() as any)?.c;
+    if (!count || count === 0) {
+      const initStmt = this.db.prepare("INSERT OR IGNORE INTO allowlist (account_id, label) VALUES (?, ?)");
+      initStmt.run("mandate-generis-researcher.testnet", "Researcher Agent");
+      initStmt.run("mandate-generis-analyst.testnet", "Analyst Agent");
+      initStmt.run("mandate-generis-verifier.testnet", "Verifier Agent");
+      initStmt.run("mandate-generis-escrow.testnet", "NEAR Escrow Contract");
+    }
+
+    // Seed initial treasury balance if empty
+    const tState = this.db.prepare("SELECT balance_near FROM treasury_state WHERE id = 1").get() as any;
+    if (!tState) {
+      this.db.prepare("INSERT OR REPLACE INTO treasury_state (id, account_id, balance_near) VALUES (1, ?, ?)").run("mandate-generis-treasury.testnet", 13.39);
+    }
+  }
+
+  // Treasury State Methods
+  getTreasuryBalance(): number {
+    const row = this.db.prepare("SELECT balance_near FROM treasury_state WHERE id = 1").get() as any;
+    return row ? Number(row.balance_near) : 13.39;
+  }
+
+  setTreasuryBalance(bal: number) {
+    this.db.prepare("UPDATE treasury_state SET balance_near = ?, last_updated = datetime('now') WHERE id = 1").run(bal);
+  }
+
+  deductTreasury(amountNear: number, note = "Payment disbursement", txHash: string | null = null): number {
+    const current = this.getTreasuryBalance();
+    const after = Math.max(0, Number((current - amountNear).toFixed(4)));
+    this.setTreasuryBalance(after);
+    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, note, tx_hash) VALUES ('payout', ?, ?, ?, ?)").run(amountNear, after, note, txHash);
+    this.audit("treasury", "TREASURY_DEDUCTED", { amountNear, balanceAfter: after, txHash });
+    return after;
+  }
+
+  fundTreasury(amountNear: number, note = "Treasury deposit", txHash: string | null = null): number {
+    const current = this.getTreasuryBalance();
+    const after = Number((current + amountNear).toFixed(4));
+    this.setTreasuryBalance(after);
+    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, note, tx_hash) VALUES ('deposit', ?, ?, ?, ?)").run(amountNear, after, note, txHash);
+    this.audit("treasury", "TREASURY_FUNDED", { amountNear, balanceAfter: after, txHash });
+    return after;
+  }
+
+  // Allowlist Methods
+  getAllowlist(): AllowlistEntry[] {
+    return (this.db.prepare("SELECT account_id as accountId, label, added_at as addedAt FROM allowlist ORDER BY added_at DESC").all() as any[]) || [];
+  }
+
+  addToAllowlist(accountId: string, label = "Approved Recipient") {
+    this.db.prepare("INSERT OR REPLACE INTO allowlist (account_id, label) VALUES (?, ?)").run(accountId, label);
+    this.audit("allowlist", "ALLOWLIST_ADDED", { accountId, label });
+  }
+
+  removeFromAllowlist(accountId: string) {
+    this.db.prepare("DELETE FROM allowlist WHERE account_id = ?").run(accountId);
+    this.audit("allowlist", "ALLOWLIST_REMOVED", { accountId });
+  }
+
+  isAllowed(accountId: string): boolean {
+    const row = this.db.prepare("SELECT 1 FROM allowlist WHERE account_id = ?").get(accountId);
+    return Boolean(row);
   }
 
   createMandate(m: Mandate) {
@@ -80,7 +166,6 @@ export class Store {
     this.db.prepare("UPDATE tasks SET status=?, retries=?, evidence=? WHERE id=?").run(t.status, t.retries, JSON.stringify(t.evidence), id);
   }
 
-  /** Spend counts confirmed AND pending payments, so a slow transaction cannot be double-spent. */
   getSpendState(mandateId: string): SpendState {
     const rows = this.db
       .prepare("SELECT recipient, amount FROM payments WHERE mandate_id=? AND status IN ('pending','confirmed')")
@@ -124,7 +209,6 @@ export class Store {
     }[];
   }
 
-  /** Run fn inside one SQLite transaction so check-then-reserve is atomic. */
   atomic<T>(fn: () => T): T {
     return this.db.transaction(fn)();
   }
