@@ -1,0 +1,8 @@
+﻿.env
+node_modules
+*.db
+*.db-journal
+.secrets
+target/
+contract/target/
+dist/
