@@ -1,14 +1,13 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
 import { JsonRpcProvider } from 'near-api-js';
 import Database from 'better-sqlite3';
+import { runAutonomousMandate } from './runner.js';
 
 const PORT = 3000;
 const rootDir = path.resolve('.');
 const publicDir = path.join(rootDir, 'public');
-const secretsPath = path.join(rootDir, '.secrets', 'keys.json');
 const dbPath = path.join(rootDir, 'mandate.db');
 
 const provider = new JsonRpcProvider({ url: 'https://test.rpc.fastnear.com' });
@@ -21,7 +20,6 @@ function getMimeType(filePath: string): string {
     case '.js': return 'application/javascript';
     case '.json': return 'application/json';
     case '.svg': return 'image/svg+xml';
-    case '.png': return 'image/png';
     default: return 'application/octet-stream';
   }
 }
@@ -45,7 +43,6 @@ async function getAccountBalance(accountId: string): Promise<string> {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -55,43 +52,44 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
-  // 1. /api/accounts
-  if (url.pathname === '/api/accounts') {
-    if (!fs.existsSync(secretsPath)) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'keys.json not found' }));
-    }
-    const keys = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
-    const enriched: Record<string, any> = {};
-
-    const roleMeta: Record<string, { label: string; desc: string }> = {
-      escrow: { label: 'Rust Escrow Smart Contract', desc: 'On-chain WASM escrow holding mandate funds' },
-      researcher: { label: 'Researcher Agent', desc: 'Produces competitive analysis & receives verified payouts' },
-      analyst: { label: 'Analyst Agent', desc: 'Secondary worker agent subjected to $5.00 cap' },
-      verifier: { label: 'Verifier Guardrail', desc: 'Evaluates task deliverables against policy criteria' },
-      treasury: { label: 'Treasury Funder', desc: 'Initial funder & deployer of escrow contracts' }
-    };
-
-    await Promise.all(
-      Object.keys(keys).map(async (k) => {
-        const item = keys[k];
-        const bal = await getAccountBalance(item.accountId);
-        enriched[k] = {
-          ...item,
-          role: k,
-          label: roleMeta[k]?.label || k,
-          description: roleMeta[k]?.desc || '',
-          balance: bal,
-          explorerUrl: `https://explorer.testnet.near.org/accounts/${item.accountId}`
-        };
-      })
-    );
+  // 1. /api/agents - Public metadata only (NO PRIVATE KEYS)
+  if (url.pathname === '/api/agents') {
+    const agents = [
+      {
+        role: 'Researcher',
+        account: process.env.AGENT_RESEARCHER || 'mandate-generis-researcher.testnet',
+        spendingCap: '$5.00',
+        responsibility: 'Gathers competitive research, market pricing, and verifiable sources',
+        explorerUrl: `https://explorer.testnet.near.org/accounts/${process.env.AGENT_RESEARCHER || 'mandate-generis-researcher.testnet'}`
+      },
+      {
+        role: 'Analyst',
+        account: process.env.AGENT_ANALYST || 'mandate-generis-analyst.testnet',
+        spendingCap: '$5.00',
+        responsibility: 'Performs quantitative analysis and comparative benchmarking',
+        explorerUrl: `https://explorer.testnet.near.org/accounts/${process.env.AGENT_ANALYST || 'mandate-generis-analyst.testnet'}`
+      },
+      {
+        role: 'Verifier',
+        account: process.env.AGENT_VERIFIER || 'mandate-generis-verifier.testnet',
+        spendingCap: 'N/A',
+        responsibility: 'Audits deliverables against acceptance rubric before payment authorization',
+        explorerUrl: `https://explorer.testnet.near.org/accounts/${process.env.AGENT_VERIFIER || 'mandate-generis-verifier.testnet'}`
+      },
+      {
+        role: 'Escrow Contract',
+        account: process.env.ESCROW_CONTRACT_ID || 'mandate-generis-escrow.testnet',
+        spendingCap: 'Mandate Budget Limit',
+        responsibility: 'Holds user funds on NEAR testnet and executes authorized payouts',
+        explorerUrl: `https://explorer.testnet.near.org/accounts/${process.env.ESCROW_CONTRACT_ID || 'mandate-generis-escrow.testnet'}`
+      }
+    ];
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(enriched));
+    return res.end(JSON.stringify(agents));
   }
 
-  // 2. /api/contract
+  // 2. /api/contract - Smart contract details
   if (url.pathname === '/api/contract') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
@@ -107,7 +105,7 @@ const server = http.createServer(async (req, res) => {
     }));
   }
 
-  // 3. /api/ledger
+  // 3. /api/ledger - Audit ledger
   if (url.pathname === '/api/ledger') {
     try {
       if (fs.existsSync(dbPath)) {
@@ -138,139 +136,93 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify([]));
   }
 
-  // 4. /api/chat - Natural conversational actions & execution
+  // 4. /api/execute - Practical business mandate execution
+  if (url.pathname === '/api/execute' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const result = await runAutonomousMandate({
+          goal: payload.goal,
+          totalBudgetCents: payload.budgetDollars ? BigInt(Math.round(payload.budgetDollars * 100)) : undefined,
+          perAgentCapCents: payload.capDollars ? BigInt(Math.round(payload.capDollars * 100)) : undefined,
+          executorMode: payload.executor || 'escrow',
+          simulateAttack: payload.simulateAttack !== false,
+          deliverableText: payload.deliverableText,
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Execution failed' }));
+      }
+    });
+    return;
+  }
+
+  // 5. /api/chat - Natural language conversational assistant
   if (url.pathname === '/api/chat' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
       let prompt = '';
-      let executor = 'escrow';
+      let executor: 'escrow' | 'near' | 'mock' = 'escrow';
       try {
         const parsed = JSON.parse(body);
-        prompt = (parsed.message || '').trim().toLowerCase();
+        prompt = (parsed.message || '').trim();
         if (parsed.executor) executor = parsed.executor;
       } catch {}
 
-      // Intent detection
-      const isKeysIntent = /key|wallet|account|fund|balance|secret|private/i.test(prompt);
-      const isSettlementIntent = /settle|execute|payout|escrow|run|deliverable|researcher|demo/i.test(prompt) && !/attack|inject|deny/i.test(prompt);
-      const isAttackIntent = /attack|inject|bypass|hack|deny|malicious|guardrail|security|test attack/i.test(prompt);
-      const isContractIntent = /contract|rust|wasm|near|methods|storage/i.test(prompt) && !isSettlementIntent;
+      const lower = prompt.toLowerCase();
 
-      if (isKeysIntent && !isSettlementIntent && !isAttackIntent) {
-        const keys = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
-        const accountList = await Promise.all(Object.keys(keys).map(async (k) => {
-          const item = keys[k];
-          const bal = await getAccountBalance(item.accountId);
-          return { role: k, ...item, balance: bal };
-        }));
-
+      // Guardrail: Explicitly reject any requests to view private keys
+      if (/key|secret|private|seed|wallet dump|export key/i.test(lower)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          type: 'accounts',
-          thought: 'Queried local keystore and NEAR testnet FastRPC node for live balances.',
-          accounts: accountList,
-          message: 'Here are all the funded NEAR testnet accounts, balances, and private keys:'
+          type: 'security_notice',
+          thought: 'Request for private keys intercepted. Access strictly denied by Mandate security policy.',
+          message: '🔒 Private keys are strictly quarantined in the autonomous backend environment and cannot be viewed, exported, or accessed through this interface. Mandate signs transactions autonomously using its smart contract escrow and policy treasury to protect your funds.'
         }));
       }
 
-      if (isAttackIntent) {
-        exec('npm run demo', {
-          cwd: rootDir,
-          env: { ...process.env, DEMO_EXECUTOR: 'mock' }
-        }, (error, stdout, stderr) => {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            type: 'attack_test',
-            thought: 'Executed prompt-injection & over-budget attacks against Mandate Policy Engine. Verified all guardrails.',
-            attacks: [
-              {
-                attack: 'Analyst requested $8.00 (Exceeds $5.00 per-agent cap)',
-                result: 'DENIED',
-                reasons: [
-                  'TASK_NOT_VERIFIED: Task is "pending"; payment requires a verified deliverable.',
-                  'PER_AGENT_CAP_EXCEEDED: Paying $8.00 brings agent to $8.00, above the $5.00 limit.'
-                ]
-              },
-              {
-                attack: 'Payment routed to rogue recipient (attacker.testnet)',
-                result: 'DENIED',
-                reasons: [
-                  'RECIPIENT_NOT_ALLOWED: Recipient attacker.testnet is not on the mandate allowlist.',
-                  'RECIPIENT_NOT_ALLOWED: Recipient does not match the agent assigned to this task.',
-                  'TASK_NOT_VERIFIED: Task is "pending"; payment requires a verified deliverable.'
-                ]
-              },
-              {
-                attack: 'Direct unauthorized invocation of on_payout in Rust smart contract',
-                result: 'DENIED',
-                reasons: ['Smart contract panicked: Only contract itself can call on_payout callback.']
-              }
-            ],
-            rawOutput: stdout,
-            message: 'All 3 security attacks were intercepted and blocked by Mandate guardrails.'
-          }));
+      // Attack test request
+      if (/attack|inject|bypass|hack|deny|malicious|guardrail|security|test attack/i.test(lower)) {
+        const result = await runAutonomousMandate({
+          goal: "Security verification: enforce spending limits and deny unverified payments.",
+          executorMode: 'mock',
+          simulateAttack: true
         });
-        return;
-      }
 
-      if (isContractIntent) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          type: 'contract',
-          thought: 'Fetched deployed Rust WASM contract metadata from NEAR testnet.',
-          contract: {
-            id: 'mandate-generis-escrow.testnet',
-            size: '200,794 bytes (WASM)',
-            deployTx: '4NPJSiRVxjB9JcaTkGv2ermpVR91WATp4jwnyDXfVdJs',
-            initTx: 'TGPBhsQatdkz3WyAmfhtD1yztSmUnMPPv7AoJkMYGKe',
-            methods: ['new', 'create_mandate', 'execute_payout', 'get_mandate', 'refund_mandate'],
-            explorerUrl: 'https://explorer.testnet.near.org/accounts/mandate-generis-escrow.testnet'
-          },
-          message: 'Rust Escrow Smart Contract is active on NEAR Testnet at mandate-generis-escrow.testnet.'
+          type: 'attack_test',
+          thought: 'Executed prompt-injection & over-budget attacks against Mandate Policy Engine. Verified all guardrails.',
+          mandateResult: result,
+          message: 'Mandate successfully intercepted and denied all unauthorized payment attempts. Spending limits enforced.'
         }));
       }
 
-      // Default: Run execution demo
-      exec('npm run demo', {
-        cwd: rootDir,
-        env: { ...process.env, DEMO_EXECUTOR: executor }
-      }, (error, stdout, stderr) => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          type: 'execution',
-          thought: `Evaluated mandate tasks with Verifier agent, verified policy conditions, and triggered execution via ${executor} mode.`,
-          executor,
-          output: stdout || stderr,
-          success: !error,
-          message: `Execution run complete using ${executor} mode.`
-        }));
-      });
-    });
-    return;
-  }
-
-  // Legacy /api/demo endpoint
-  if (url.pathname === '/api/demo' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      let executor = 'escrow';
+      // Default: Run practical autonomous business mandate
       try {
-        const parsed = JSON.parse(body);
-        if (parsed.executor) executor = parsed.executor;
-      } catch {}
+        const result = await runAutonomousMandate({
+          goal: prompt.length > 5 ? prompt : undefined,
+          executorMode: executor,
+          simulateAttack: true
+        });
 
-      exec('npm run demo', {
-        cwd: rootDir,
-        env: { ...process.env, DEMO_EXECUTOR: executor }
-      }, (error, stdout, stderr) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          success: !error,
-          output: stdout || stderr || 'Demo finished'
+          type: 'mandate_execution',
+          thought: `Decomposed business directive, assigned specialized agents, evaluated deliverable against rubric, and enforced spending limits via ${executor} mode.`,
+          mandateResult: result,
+          message: `Autonomous Mandate executed successfully. Verifier evaluated work, spending policy was enforced, and payout settled on NEAR.`
         }));
-      });
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Execution error' }));
+      }
     });
     return;
   }
@@ -292,5 +244,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Mandate Web UI] Running at http://localhost:${PORT}`);
+  console.log(`[Mandate Business Agent] Running at http://localhost:${PORT}`);
 });

@@ -35,7 +35,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* App Container */
 .app-container {
   display: flex;
   width: 100vw;
@@ -237,10 +236,6 @@ body {
   color: var(--text-muted);
 }
 
-.chevron-icon {
-  color: var(--text-muted);
-}
-
 /* Main Panel */
 .main-panel {
   flex: 1;
@@ -252,7 +247,6 @@ body {
   overflow: hidden;
 }
 
-/* Top Nav */
 .top-nav {
   height: 52px;
   padding: 0 16px;
@@ -357,7 +351,7 @@ body {
   position: relative;
 }
 
-/* Hero Initial Screen */
+/* Hero Screen */
 .hero-screen {
   max-width: 768px;
   width: 100%;
@@ -382,22 +376,26 @@ body {
 }
 
 .hero-title {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 600;
   letter-spacing: -0.02em;
   margin-bottom: 10px;
   color: #fff;
+  line-height: 1.3;
 }
 
 .hero-subtitle {
-  font-size: 15px;
+  font-size: 14.5px;
   color: var(--text-secondary);
-  max-width: 540px;
-  line-height: 1.5;
-  margin-bottom: 36px;
+  max-width: 580px;
+  line-height: 1.55;
+  margin-bottom: 34px;
 }
 
-/* Suggestion Grid (ChatGPT pills) */
+.hero-subtitle strong {
+  color: #10a37f;
+}
+
 .suggestions-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -415,7 +413,7 @@ body {
   padding: 14px 16px;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .suggestion-card:hover {
@@ -505,7 +503,7 @@ body {
   overflow: hidden;
 }
 
-/* Thinking accordion (ChatGPT "Thought for X seconds") */
+/* Thought Accordion */
 .thought-box {
   background: rgba(255, 255, 255, 0.03);
   border-left: 2px solid #10a37f;
@@ -524,107 +522,140 @@ body {
   cursor: pointer;
 }
 
-.thought-header:hover {
-  color: var(--text-secondary);
-}
-
 .thought-body {
   margin-top: 8px;
   font-size: 12.5px;
   color: var(--text-secondary);
   line-height: 1.5;
-  font-family: var(--font-mono);
 }
 
-/* Structured Output Cards inside Chat */
-.chat-card {
+/* Step execution cards */
+.mandate-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   padding: 16px;
-  margin-top: 8px;
-}
-
-.chat-card-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 12px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 14px;
 }
 
-/* Key items in chat */
-.key-row {
+.mandate-header-badge {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 10px;
+}
+
+.mandate-title-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.budget-pills-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.budget-stat-box {
+  background: #222;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.2);
-  margin-bottom: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
+  padding: 8px 12px;
+  flex: 1;
+  min-width: 120px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.key-row:last-child {
-  margin-bottom: 0;
+.budget-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 2px;
 }
 
-.key-info {
+.budget-stat-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #10a37f;
+}
+
+/* Steps timeline */
+.steps-timeline {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
+  gap: 10px;
 }
 
-.key-role {
-  font-weight: 600;
-  color: #10a37f;
-  font-family: var(--font-sans);
-  font-size: 12px;
-}
-
-.key-val {
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 440px;
-}
-
-.copy-mini-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  color: var(--text-primary);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.copy-mini-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-/* Terminal block */
-.code-terminal {
-  background: #111;
+.step-card {
+  background: #252525;
   border-radius: 8px;
-  padding: 12px 14px;
-  font-family: var(--font-mono);
+  padding: 10px 14px;
+  border-left: 3px solid #10a37f;
+}
+
+.step-card.warning {
+  border-left-color: var(--accent-amber);
+}
+
+.step-card.error {
+  border-left-color: var(--accent-red);
+}
+
+.step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.step-phase {
+  font-size: 11px;
+  font-weight: 700;
+  color: #10a37f;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.step-detail {
   font-size: 12.5px;
-  color: #d1d5db;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-x: auto;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* Deliverable preview */
+.deliverable-box {
+  background: #1c1c1c;
+  border-radius: 8px;
+  padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.deliverable-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.deliverable-text {
+  font-size: 12.5px;
+  color: #d1d5db;
+  line-height: 1.5;
+  font-style: italic;
+}
+
 /* Badges */
-.badge-confirmed {
+.badge-confirmed, .badge-success {
   color: #10a37f;
   background: rgba(16, 163, 127, 0.15);
   padding: 2px 8px;
@@ -633,7 +664,7 @@ body {
   font-size: 11px;
 }
 
-.badge-denied {
+.badge-denied, .badge-error {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);
   padding: 2px 8px;
@@ -642,29 +673,7 @@ body {
   font-size: 11px;
 }
 
-/* Attack results list */
-.attack-item {
-  border-left: 3px solid #ef4444;
-  background: rgba(239, 68, 68, 0.05);
-  padding: 10px 12px;
-  border-radius: 0 6px 6px 0;
-  margin-bottom: 8px;
-}
-
-.attack-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: #fca5a5;
-  margin-bottom: 4px;
-}
-
-.attack-reason {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-/* Input Area (ChatGPT bottom pill) */
+/* Input Area */
 .input-area {
   padding: 0 20px 24px 20px;
   background: transparent;
@@ -788,7 +797,7 @@ textarea#promptInput::placeholder {
   background: #1e1e1e;
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
-  max-width: 680px;
+  max-width: 620px;
   width: 100%;
   max-height: 85vh;
   display: flex;
@@ -839,94 +848,64 @@ textarea#promptInput::placeholder {
   color: #fff;
 }
 
-.modal-desc {
-  padding: 14px 22px 4px 22px;
-  font-size: 13.5px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.accounts-grid {
-  padding: 16px 22px;
+.modal-body-form {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   overflow-y: auto;
+}
+
+.form-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.account-modal-card {
-  background: #262626;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.acc-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.acc-label-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.acc-badge {
-  background: rgba(16, 163, 127, 0.15);
-  color: #10a37f;
-  font-weight: 600;
-  font-size: 11.5px;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.acc-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.acc-balance {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: #00e599;
-}
-
-.acc-key-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #191919;
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-
-.acc-key-label {
-  color: var(--text-muted);
-  width: 70px;
-  font-size: 11px;
-}
-
-.acc-key-text {
-  color: var(--text-primary);
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-right: 8px;
-}
-
-.acc-btns {
-  display: flex;
-  align-items: center;
   gap: 6px;
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-group.half {
+  flex: 1;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.form-control {
+  background: #2a2a2a;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-control:focus {
+  border-color: #10a37f;
+}
+
+.rubric-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rubric-pill {
+  background: rgba(16, 163, 127, 0.12);
+  color: #10a37f;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
 .modal-footer {
@@ -947,7 +926,7 @@ textarea#promptInput::placeholder {
   color: #ffffff;
   border: none;
   border-radius: 8px;
-  padding: 8px 16px;
+  padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -958,7 +937,45 @@ textarea#promptInput::placeholder {
   background: var(--accent-green-hover);
 }
 
-/* Ledger table */
+.accounts-grid {
+  padding: 16px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.account-modal-card {
+  background: #262626;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.acc-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.acc-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.acc-badge {
+  background: rgba(16, 163, 127, 0.15);
+  color: #10a37f;
+  font-weight: 600;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .table-responsive {
   padding: 16px 22px;
   overflow-x: auto;
@@ -989,11 +1006,6 @@ textarea#promptInput::placeholder {
   vertical-align: top;
 }
 
-.ledger-table tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-/* Toast */
 .toast-notify {
   position: fixed;
   bottom: 30px;
@@ -1017,12 +1029,10 @@ textarea#promptInput::placeholder {
   opacity: 1;
 }
 
-/* Responsive */
 @media (max-width: 768px) {
   .sidebar {
     position: fixed;
     height: 100vh;
-    box-shadow: 4px 0 24px rgba(0,0,0,0.5);
   }
   .suggestions-grid {
     grid-template-columns: 1fr;
