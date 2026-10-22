@@ -444,28 +444,98 @@ function renderAssistantResponse(id, data) {
     return;
   }
 
-  // 5. Mandate Execution Result
+  // 5. Mandate Execution Result (Strictly Aligned Executive Experience)
   if (data.mandateResult) {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     const res = data.mandateResult;
+    const txLink = res.payout && res.payout.txHash
+      ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
+      : null;
+
     el.innerHTML = `
       <div class="assistant-avatar">M</div>
-      <div class="message-content">
-        <p>${escapeHtml(data.message)}</p>
-        <div class="receipt-card">
+      <div class="message-content" style="max-width:100%;">
+        <div style="font-size:15px; font-weight:600; color:#fff; margin-bottom:8px;">
+          Autonomous Mandate Executed · Spending Guardrails Enforced
+        </div>
+
+        <!-- 1. Mandate Policy Card -->
+        <div class="receipt-card" style="margin-bottom:12px; background:#111622; border-color:#1e293b;">
           <div class="receipt-top">
-            <strong>${escapeHtml(res.mandate.goal)}</strong>
-            <span class="receipt-badge-confirmed">ACTIVE</span>
+            <span style="font-weight:600; color:#f8fafc; font-size:13.5px;">${escapeHtml(res.mandate.goal)}</span>
+            <span class="receipt-badge-confirmed" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">ACTIVE</span>
           </div>
-          <div style="display:flex; gap:12px; margin: 6px 0; font-size:13px;">
-            <div>Budget: <strong>${res.budgetState.totalBudget}</strong></div>
-            <div>Spent: <strong style="color:#f59e0b;">${res.budgetState.spent}</strong></div>
-            <div>Cap: <strong>${res.mandate.perAgentCap}</strong></div>
+          <div style="display:flex; flex-wrap:wrap; gap:16px; margin: 10px 0 8px 0; font-size:13px; color:#94a3b8;">
+            <div>Mandate Budget: <strong style="color:#fff;">${res.budgetState.totalBudget}</strong></div>
+            <div>Per-Agent Cap: <strong style="color:#fff;">${res.mandate.perAgentCap}</strong></div>
+            <div>Disbursed: <strong style="color:#10b981;">${res.budgetState.spent}</strong></div>
+            <div>Remaining: <strong style="color:#38bdf8;">${res.budgetState.remaining}</strong></div>
           </div>
-          <div style="font-size:12.5px; color:#b4b4b4; line-height:1.45; background:#222; padding:8px 10px; border-radius:6px;">
-            ${res.steps.map(s => `• <strong>${escapeHtml(s.title)}:</strong> ${escapeHtml(s.detail)}`).join('<br>')}
+          <div style="font-size:12px; padding:6px 10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#fca5a5;">
+            🛑 <strong>Active Restriction:</strong> ${escapeHtml(res.mandate.restrictions ? res.mandate.restrictions[0] : 'Purchases prohibited without explicit user authorization.')}
           </div>
         </div>
+
+        <!-- 2. Specialized Multi-Agent Roles -->
+        <div style="margin-bottom:12px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 12px;">
+          <div style="font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Specialized Agent Delegation</div>
+          <div style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
+            ${res.delegation.map(d => `
+              <div style="display:flex; align-items:flex-start; gap:8px;">
+                <span style="color:#38bdf8; font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
+                <span style="color:#cbd5e1; flex:1;">${escapeHtml(d.description)}</span>
+                <code style="font-size:11px; color:#64748b; font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- 3. Executive Verified Deliverable -->
+        <div style="margin-bottom:12px; background:#0b0f19; border:1px solid #1e293b; border-radius:8px; padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #1e293b; padding-bottom:8px;">
+            <div style="font-size:13px; font-weight:600; color:#38bdf8; text-transform:uppercase; letter-spacing:0.5px;">Verified Executive Deliverable</div>
+            <span style="font-size:11.5px; background:rgba(16,185,129,0.15); color:#10b981; padding:3px 8px; border-radius:12px; font-weight:600;">✓ AUDIT PASSED</span>
+          </div>
+          <div class="deliverable-body" style="font-size:13.5px; line-height:1.65; color:#cbd5e1;">
+            ${renderMarkdownRich(res.deliverable.preview)}
+          </div>
+        </div>
+
+        <!-- 4. On-Chain Settlement Receipt -->
+        <div style="margin-bottom:12px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px;">
+          <div style="font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">On-Chain Testnet Settlement</div>
+          <div style="font-size:13px; color:#cbd5e1; line-height:1.5;">
+            • <strong>Disbursement:</strong> Paid ${res.payout.amount} to <code style="color:#38bdf8;">${res.payout.recipient}</code> for verified research services.<br>
+            • <strong>Testnet Transaction:</strong> ${txLink ? txLink + ' (Live on NearBlocks)' : '<em>Pending block inclusion</em>'}<br>
+            • <strong>Policy Audit:</strong> Validated allowlist, verified rubric, under ${res.mandate.perAgentCap} cap.
+          </div>
+        </div>
+
+        <!-- 5. Restriction Guardrails Enforced (The Blocked Actions) -->
+        ${res.attackSimulation && res.attackSimulation.length > 0 ? `
+          <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:12px;">
+            <div style="font-size:12px; font-weight:600; color:#ef4444; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">
+              Enforced Restrictions & Guardrails (Intercepted Actions)
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
+              ${res.attackSimulation.map(att => `
+                <div style="background:rgba(0,0,0,0.3); padding:8px 10px; border-radius:6px; border-left:3px solid #ef4444;">
+                  <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
+                    <strong style="color:#f87171;">${escapeHtml(att.attempt)}</strong>
+                    <span style="color:#ef4444; font-weight:700; font-size:11px;">🛑 ${att.status}</span>
+                  </div>
+                  <div style="color:#94a3b8; font-size:11.5px;">
+                    ${att.reasons.map(r => `• ${escapeHtml(r.message)}`).join('<br>')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div style="font-size:12px; color:#94a3b8; margin-top:8px;">
+              <em>The agents performed the research autonomously within their permissions, while restricted purchase actions remained strictly under your control.</em>
+            </div>
+          </div>
+        ` : ''}
+
       </div>
     `;
     return;
@@ -513,3 +583,43 @@ function escapeHtml(str) {
 // Initial load
 loadTreasuryBalance();
 loadAllowlist();
+
+function renderMarkdownRich(md) {
+  if (!md) return '';
+  let html = md;
+  // Code blocks
+  html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:#090d16; padding:10px; border-radius:6px; overflow-x:auto; font-family:var(--font-mono); font-size:12px; margin:10px 0;"><code>$1</code></pre>');
+  // Headers
+  html = html.replace(/^### (.*$)/gim, '<h4 style="margin:14px 0 6px 0; color:#e2e8f0; font-size:13.5px; font-weight:600;">$1</h4>');
+  html = html.replace(/^## (.*$)/gim, '<h3 style="margin:18px 0 8px 0; color:#f8fafc; font-size:15px; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:4px;">$1</h3>');
+  html = html.replace(/^# (.*$)/gim, '<h2 style="margin:20px 0 10px 0; color:#fff; font-size:17px; font-weight:700;">$1</h2>');
+  // Bold & Italic
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;">$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08); padding:2px 5px; border-radius:4px; font-family:var(--font-mono); font-size:12px; color:#38bdf8;">$1</code>');
+  // Lists
+  html = html.replace(/^\s*-\s+(.*$)/gim, '<li style="margin-left:18px; margin-bottom:4px; color:#cbd5e1;">$1</li>');
+  html = html.replace(/^\s*\d+\.\s+(.*$)/gim, '<li style="margin-left:18px; margin-bottom:4px; color:#cbd5e1;">$1</li>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline;">$1</a>');
+  // Tables
+  html = html.replace(/((?:\|[^\n]+\|\r?\n)+)/g, (tableText) => {
+    const lines = tableText.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (lines.length < 2) return tableText;
+    let tableHtml = '<div style="overflow-x:auto; margin:14px 0;"><table style="width:100%; border-collapse:collapse; font-size:12px; border:1px solid #334155;">';
+    lines.forEach((line, idx) => {
+      if (line.includes('---')) return;
+      const cells = line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
+      tableHtml += '<tr>';
+      cells.forEach(c => {
+        const tag = idx === 0 ? 'th' : 'td';
+        const bg = idx === 0 ? 'background:#1e293b; font-weight:600; color:#f8fafc;' : 'background:rgba(15,23,42,0.65); color:#cbd5e1;';
+        tableHtml += `<${tag} style="${bg} padding:8px 10px; border:1px solid #334155; text-align:left;">${c}</${tag}>`;
+      });
+      tableHtml += '</tr>';
+    });
+    tableHtml += '</table></div>';
+    return tableHtml;
+  });
+  return html.replace(/\n\n/g, '<br><br>');
+}

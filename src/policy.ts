@@ -15,6 +15,27 @@ export function evaluatePayment(
   const reasons: Decision["reasons"] = [];
   const deny = (code: DenyCode, message: string) => reasons.push({ code, message });
 
+  // 1. Restriction Check: e.g. purchasing goods or placing purchase orders requires human approval
+  if (req.actionType === "purchase_order" || (req.actionType as string) === "purchase") {
+    const isRestricted = mandate.restrictedActions && mandate.restrictedActions.length > 0
+      ? mandate.restrictedActions.some(r => r.action.includes("purchase") && r.requiresApproval)
+      : true; // Default safety lock: purchases always require explicit user approval
+    if (isRestricted) {
+      deny(
+        "RESTRICTED_ACTION_PROHIBITED",
+        "Unauthorized Purchase Blocked: User directive explicitly restricts purchasing goods or inventory without prior human approval."
+      );
+    }
+  }
+
+  // 2. Service Scope Check: Ensure requested service is on the mandate's approved services list
+  if (mandate.allowedServices && mandate.allowedServices.length > 0 && req.serviceName) {
+    const isApproved = mandate.allowedServices.includes(req.serviceName) || mandate.allowedServices.includes("all");
+    if (!isApproved) {
+      deny("UNAPPROVED_SERVICE", `Service "${req.serviceName}" is not on the mandate's approved services list.`);
+    }
+  }
+
   if (mandate.status !== "active") deny("MANDATE_NOT_ACTIVE", "Mandate is closed.");
   if (req.amount <= 0n) deny("INVALID_AMOUNT", "Amount must be a positive integer number of cents.");
   if (req.asset !== mandate.allowedAsset)

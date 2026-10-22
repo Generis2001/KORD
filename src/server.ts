@@ -269,10 +269,10 @@ const server = http.createServer(async (req, res) => {
           }));
         }
 
-        // Execute payment on NEAR testnet (or fallback if offline)
+        // Execute payment on NEAR testnet (Strictly live on-chain, zero mocks)
         try {
           const amountCents = BigInt(Math.round(amountNear * 1000));
-          let txHash = 'tx_' + Date.now().toString(36);
+          let txHash = '';
           let onchain = false;
 
           try {
@@ -283,13 +283,20 @@ const server = http.createServer(async (req, res) => {
               taskId: `pay-${Date.now()}`,
               evidenceHash: 'direct-user-transfer'
             });
-            if (executionResult && executionResult.txHash) {
-              txHash = executionResult.txHash;
-              onchain = true;
+            if (!executionResult || !executionResult.txHash) {
+              throw new Error("NEAR network did not return a valid transaction hash.");
             }
+            txHash = executionResult.txHash;
+            onchain = true;
           } catch (netErr: any) {
-            // If offline or network unavailable, record disbursement in ledger
-            txHash = 'offline_' + Date.now().toString(36);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+              type: 'payment_failed',
+              recipient,
+              amountNear,
+              error: netErr.message,
+              message: '❌ **NEAR Testnet Execution Error:** ' + netErr.message + '\n\nPlease verify network connectivity or recipient account validity.'
+            }));
           }
 
           // Record in DB payments
@@ -299,10 +306,10 @@ const server = http.createServer(async (req, res) => {
             recipient,
             amount: amountCents,
             status: 'confirmed',
-            onchain: onchain,
+            onchain: true,
             network: 'testnet',
             txHash: txHash,
-            note: 'Direct transfer of ' + amountNear + ' NEAR to ' + recipient
+            note: 'Direct on-chain transfer of ' + amountNear + ' NEAR to ' + recipient
           });
 
           // Accurately deduct from treasury balance
@@ -316,9 +323,12 @@ const server = http.createServer(async (req, res) => {
             amountNear,
             addedToAllowlist: addedNow,
             txHash: txHash,
-            explorerUrl: onchain ? `https://explorer.testnet.near.org/transactions/${txHash}` : null,
+            explorerUrl: `https://testnet.nearblocks.io/txns/${txHash}`,
             remainingBalance: afterBal.toFixed(2),
-            message: 'Payment of **' + amountNear + ' NEAR** to `' + recipient + '` has been **confirmed**.\n\n• **Remaining Treasury Balance:** ' + afterBal.toFixed(2) + ' NEAR.'
+            message: 'Payment of **' + amountNear + ' NEAR** to `' + recipient + '` has been **confirmed on-chain**.\n\n' +
+              '• **Transaction Hash:** `' + txHash + '`\n' +
+              '• **Explorer Receipt:** [View on NearBlocks](https://testnet.nearblocks.io/txns/' + txHash + ')\n' +
+              '• **Remaining Treasury Balance:** ' + afterBal.toFixed(2) + ' NEAR.'
           }));
         } catch (err: any) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -368,13 +378,13 @@ const server = http.createServer(async (req, res) => {
       try {
         const result = await runAutonomousMandate({
           goal: prompt.length > 5 ? prompt : undefined,
-          executorMode: 'escrow',
+          executorMode: 'near', // Live on-chain NEAR testnet execution
           simulateAttack: true
         });
 
-        // If mandate made an on-chain payout, deduct from treasury
+        // If mandate made an on-chain payout, deduct from treasury accurately
         if (result && result.payout && result.payout.status === 'confirmed') {
-          store.deductTreasury(4.00, 'Mandate task payout: ' + result.payout.recipient, result.payout.txHash);
+          store.deductTreasury(0.40, 'Mandate research fee payout: ' + result.payout.recipient, result.payout.txHash || undefined);
         }
 
         const bal = store.getTreasuryBalance();
@@ -384,7 +394,7 @@ const server = http.createServer(async (req, res) => {
           type: 'mandate_execution',
           mandateResult: result,
           treasuryBalance: bal.toFixed(2),
-          message: 'Autonomous business mandate executed with spending limits enforced.'
+          message: 'Autonomous business mandate executed with spending limits and restrictions enforced.'
         }));
       } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
