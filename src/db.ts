@@ -44,7 +44,7 @@ export class Store {
 
   createMandate(m: Mandate) {
     this.db
-      .prepare("INSERT INTO mandates VALUES (?,?,?,?,?,?,?,?)")
+      .prepare("INSERT OR REPLACE INTO mandates VALUES (?,?,?,?,?,?,?,?)")
       .run(m.id, m.goal, m.totalBudget.toString(), m.perAgentCap.toString(), JSON.stringify(m.allowedRecipients), m.allowedAsset, m.maxRetries, m.status);
     this.audit(m.id, "MANDATE_CREATED", { goal: m.goal, totalBudget: m.totalBudget.toString(), perAgentCap: m.perAgentCap.toString() });
   }
@@ -61,7 +61,7 @@ export class Store {
 
   createTask(t: Task) {
     this.db
-      .prepare("INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?)")
+      .prepare("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?)")
       .run(t.id, t.mandateId, t.role, t.agentAccount, t.description, t.status, t.retries, JSON.stringify(t.evidence));
     this.audit(t.mandateId, "TASK_CREATED", { taskId: t.id, role: t.role, agent: t.agentAccount });
   }
