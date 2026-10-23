@@ -47,12 +47,14 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT, mandate_id TEXT NOT NULL, task_id TEXT NOT NULL,
         recipient TEXT NOT NULL, amount TEXT NOT NULL, status TEXT NOT NULL,
         onchain INTEGER NOT NULL DEFAULT 0, network TEXT, tx_hash TEXT, note TEXT,
+        user_account TEXT NOT NULL DEFAULT 'default',
         created_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS audit_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT, mandate_id TEXT NOT NULL, event TEXT NOT NULL,
         detail TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS allowlist (
         account_id TEXT PRIMARY KEY, label TEXT NOT NULL,
+        user_account TEXT NOT NULL DEFAULT 'default',
         added_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS treasury_state (
         id INTEGER PRIMARY KEY,
@@ -64,76 +66,208 @@ export class Store {
         type TEXT NOT NULL,
         amount_near REAL NOT NULL,
         balance_after REAL NOT NULL,
+        user_account TEXT NOT NULL DEFAULT 'default',
         note TEXT,
         tx_hash TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS user_accounts (
+        account_id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        balance_near REAL NOT NULL DEFAULT 10.00,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        user_account TEXT NOT NULL,
+        title TEXT NOT NULL,
+        messages_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')));
     `);
 
-    // Seed initial allowlist if empty
-    const count = (this.db.prepare("SELECT COUNT(*) as c FROM allowlist").get() as any)?.c;
-    if (!count || count === 0) {
-      const initStmt = this.db.prepare("INSERT OR IGNORE INTO allowlist (account_id, label) VALUES (?, ?)");
-      initStmt.run("mandate-generis-researcher.testnet", "Researcher Agent");
-      initStmt.run("mandate-generis-analyst.testnet", "Analyst Agent");
-      initStmt.run("mandate-generis-verifier.testnet", "Verifier Agent");
-      initStmt.run("mandate-generis-escrow.testnet", "NEAR Escrow Contract");
+    // Safe schema migrations for existing DB instances
+    try { this.db.exec("ALTER TABLE allowlist ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
+    try { this.db.exec("ALTER TABLE treasury_ledger ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
+    try { this.db.exec("ALTER TABLE payments ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
+
+    // Initialize default allowlist
+    const defaultAccounts = [
+      { accountId: "mandate-generis-researcher.testnet", label: "Researcher Agent" },
+      { accountId: "mandate-generis-analyst.testnet", label: "Analyst Agent" },
+      { accountId: "mandate-generis-verifier.testnet", label: "Verifier Agent" },
+      { accountId: "mandate-generis-escrow.testnet", label: "NEAR Escrow Contract" },
+    ];
+    for (const acc of defaultAccounts) {
+      this.db.prepare("INSERT OR IGNORE INTO allowlist (account_id, label, user_account) VALUES (?, ?, 'default')").run(acc.accountId, acc.label);
     }
+  }
 
-    // Seed initial treasury balance if empty
-    const tState = this.db.prepare("SELECT balance_near FROM treasury_state WHERE id = 1").get() as any;
-    if (!tState) {
-      this.db.prepare("INSERT OR REPLACE INTO treasury_state (id, account_id, balance_near) VALUES (1, ?, ?)").run("mandate-generis-treasury.testnet", 13.39);
+  // --- User Account Operations ---
+  getOrCreateUser(userAccount: string, initialBalance = 10.00): { accountId: string; balanceNear: number } {
+    const acc = userAccount.trim().toLowerCase();
+    const existing = this.db.prepare("SELECT * FROM user_accounts WHERE account_id=?").get(acc) as any;
+    if (existing) {
+      return { accountId: existing.account_id, balanceNear: Number(existing.balance_near) };
     }
+    this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near) VALUES (?, ?, ?)").run(acc, `User ${acc}`, initialBalance);
+    // Seed user's personal allowlist with default specialized agents
+    const defaultAgents = [
+      "mandate-generis-researcher.testnet",
+      "mandate-generis-analyst.testnet",
+      "mandate-generis-verifier.testnet",
+      "mandate-generis-escrow.testnet"
+    ];
+    for (const ag of defaultAgents) {
+      this.db.prepare("INSERT OR IGNORE INTO allowlist (account_id, label, user_account) VALUES (?, 'Specialized Agent', ?)").run(ag, acc);
+    }
+    return { accountId: acc, balanceNear: initialBalance };
   }
 
-  // Treasury State Methods
-  getTreasuryBalance(): number {
-    const row = this.db.prepare("SELECT balance_near FROM treasury_state WHERE id = 1").get() as any;
-    return row ? Number(row.balance_near) : 13.39;
+  getUserBalance(userAccount: string): number {
+    const acc = userAccount.trim().toLowerCase();
+    const row = this.db.prepare("SELECT balance_near FROM user_accounts WHERE account_id=?").get(acc) as any;
+    if (row) return Number(row.balance_near);
+    return this.getOrCreateUser(acc).balanceNear;
   }
 
-  setTreasuryBalance(bal: number) {
-    this.db.prepare("UPDATE treasury_state SET balance_near = ?, last_updated = datetime('now') WHERE id = 1").run(bal);
+  listUsers(): { accountId: string; balanceNear: number }[] {
+    const rows = this.db.prepare("SELECT account_id, balance_near FROM user_accounts ORDER BY created_at DESC").all() as any[];
+    return rows.map(r => ({ accountId: r.account_id, balanceNear: Number(r.balance_near) }));
   }
 
-  deductTreasury(amountNear: number, note = "Payment disbursement", txHash: string | null = null): number {
-    const current = this.getTreasuryBalance();
-    const after = Math.max(0, Number((current - amountNear).toFixed(4)));
-    this.setTreasuryBalance(after);
-    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, note, tx_hash) VALUES ('payout', ?, ?, ?, ?)").run(amountNear, after, note, txHash);
-    this.audit("treasury", "TREASURY_DEDUCTED", { amountNear, balanceAfter: after, txHash });
-    return after;
+  setUserBalance(userAccount: string, balance: number): void {
+    const acc = userAccount.trim().toLowerCase();
+    this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near) VALUES (?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near").run(acc, `User ${acc}`, balance);
   }
 
-  fundTreasury(amountNear: number, note = "Treasury deposit", txHash: string | null = null): number {
-    const current = this.getTreasuryBalance();
-    const after = Number((current + amountNear).toFixed(4));
-    this.setTreasuryBalance(after);
-    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, note, tx_hash) VALUES ('deposit', ?, ?, ?, ?)").run(amountNear, after, note, txHash);
-    this.audit("treasury", "TREASURY_FUNDED", { amountNear, balanceAfter: after, txHash });
-    return after;
+  fundUserBalance(userAccount: string, amountNear: number, note: string): number {
+    const current = this.getUserBalance(userAccount);
+    const newBal = current + amountNear;
+    this.setUserBalance(userAccount, newBal);
+    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, user_account, note) VALUES ('FUND', ?, ?, ?, ?)").run(amountNear, newBal, userAccount, note);
+    return newBal;
   }
 
-  // Allowlist Methods
-  getAllowlist(): AllowlistEntry[] {
-    return (this.db.prepare("SELECT account_id as accountId, label, added_at as addedAt FROM allowlist ORDER BY added_at DESC").all() as any[]) || [];
+  deductUserBalance(userAccount: string, amountNear: number, note: string, txHash?: string): number {
+    const current = this.getUserBalance(userAccount);
+    const newBal = current >= amountNear ? current - amountNear : 0;
+    this.setUserBalance(userAccount, newBal);
+    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, user_account, note, tx_hash) VALUES ('DISBURSE', ?, ?, ?, ?, ?)").run(amountNear, newBal, userAccount, note, txHash || null);
+    return newBal;
   }
 
-  addToAllowlist(accountId: string, label = "Approved Recipient") {
-    this.db.prepare("INSERT OR REPLACE INTO allowlist (account_id, label) VALUES (?, ?)").run(accountId, label);
-    this.audit("allowlist", "ALLOWLIST_ADDED", { accountId, label });
+  // --- Allowlist Operations (User-Aware) ---
+  getAllowlist(userAccount = 'default'): AllowlistEntry[] {
+    const rows = this.db.prepare("SELECT account_id, label, added_at FROM allowlist WHERE user_account=? OR user_account='default' GROUP BY account_id ORDER BY added_at DESC").all(userAccount) as any[];
+    return rows.map((r) => ({ accountId: r.account_id, label: r.label, addedAt: r.added_at }));
   }
 
-  removeFromAllowlist(accountId: string) {
-    this.db.prepare("DELETE FROM allowlist WHERE account_id = ?").run(accountId);
-    this.audit("allowlist", "ALLOWLIST_REMOVED", { accountId });
+  addToAllowlist(accountId: string, label = "Approved Payee", userAccount = 'default'): void {
+    this.db.prepare("INSERT OR REPLACE INTO allowlist (account_id, label, user_account) VALUES (?, ?, ?)").run(accountId.trim().toLowerCase(), label, userAccount);
   }
 
-  isAllowed(accountId: string): boolean {
-    const row = this.db.prepare("SELECT 1 FROM allowlist WHERE account_id = ?").get(accountId);
+  removeFromAllowlist(accountId: string, userAccount = 'default'): boolean {
+    const info = this.db.prepare("DELETE FROM allowlist WHERE account_id=? AND (user_account=? OR user_account='default')").run(accountId.trim().toLowerCase(), userAccount);
+    return info.changes > 0;
+  }
+
+  isAllowed(accountId: string, userAccount = 'default'): boolean {
+    const row = this.db.prepare("SELECT 1 FROM allowlist WHERE account_id=? AND (user_account=? OR user_account='default')").get(accountId.trim().toLowerCase(), userAccount);
     return Boolean(row);
   }
 
+  // --- Treasury State Operations (Global default fallback) ---
+  getTreasuryBalance(): number {
+    const row = this.db.prepare("SELECT balance_near FROM treasury_state WHERE id = 1").get() as any;
+    if (row && typeof row.balance_near === 'number') {
+      return row.balance_near;
+    }
+    return 10.00;
+  }
+
+  setTreasuryBalance(bal: number): void {
+    this.db.prepare("INSERT INTO treasury_state (id, account_id, balance_near, last_updated) VALUES (1, 'mandate-generis-treasury.testnet', ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET balance_near=excluded.balance_near, last_updated=datetime('now')").run(bal);
+  }
+
+  deductTreasury(amountNear: number, note: string, txHash?: string): number {
+    const current = this.getTreasuryBalance();
+    const newBal = current >= amountNear ? current - amountNear : 0;
+    this.setTreasuryBalance(newBal);
+    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, note, tx_hash) VALUES ('DISBURSE', ?, ?, ?, ?)").run(amountNear, newBal, note, txHash || null);
+    return newBal;
+  }
+
+  fundTreasury(amountNear: number, note: string): number {
+    const current = this.getTreasuryBalance();
+    const newBal = current + amountNear;
+    this.setTreasuryBalance(newBal);
+    this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, note) VALUES ('FUND', ?, ?, ?)").run(amountNear, newBal, note);
+    return newBal;
+  }
+
+  // --- Settlement Ledger (Directly on active connection) ---
+  getLedger(userAccount?: string): any[] {
+    try {
+      const sql = userAccount && userAccount !== 'default'
+        ? "SELECT * FROM payments WHERE user_account=? OR user_account='default' ORDER BY id DESC LIMIT 50"
+        : "SELECT * FROM payments ORDER BY id DESC LIMIT 50";
+      const rows = userAccount && userAccount !== 'default'
+        ? this.db.prepare(sql).all(userAccount) as any[]
+        : this.db.prepare(sql).all() as any[];
+
+      return rows.map((r) => ({
+        id: r.id,
+        mandateId: r.mandate_id,
+        taskId: r.task_id,
+        recipient: r.recipient,
+        amountDollars: (Number(r.amount) / 100).toFixed(2),
+        amountNear: (Number(r.amount) / 1000).toFixed(2),
+        status: r.status,
+        onchain: Boolean(r.onchain),
+        txHash: r.tx_hash || null,
+        note: r.note || '',
+        createdAt: r.created_at,
+        explorerUrl: r.tx_hash ? `https://testnet.nearblocks.io/txns/${r.tx_hash}` : null
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  // --- Conversations / Chat History ---
+  getConversations(userAccount: string): any[] {
+    try {
+      const rows = this.db.prepare("SELECT id, title, updated_at FROM conversations WHERE user_account=? ORDER BY updated_at DESC LIMIT 30").all(userAccount) as any[];
+      return rows;
+    } catch {
+      return [];
+    }
+  }
+
+  getConversation(id: string): any {
+    try {
+      const row = this.db.prepare("SELECT * FROM conversations WHERE id=?").get(id) as any;
+      if (!row) return null;
+      return { id: row.id, userAccount: row.user_account, title: row.title, messages: JSON.parse(row.messages_json || '[]'), updatedAt: row.updated_at };
+    } catch {
+      return null;
+    }
+  }
+
+  saveConversation(id: string, userAccount: string, title: string, messages: any[]): void {
+    try {
+      this.db.prepare("INSERT INTO conversations (id, user_account, title, messages_json, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, updated_at=datetime('now')").run(id, userAccount, title, JSON.stringify(messages));
+    } catch {}
+  }
+
+  deleteConversation(id: string): boolean {
+    try {
+      const res = this.db.prepare("DELETE FROM conversations WHERE id=?").run(id);
+      return res.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // --- Core Mandates, Tasks & Payments ---
   createMandate(m: Mandate) {
     this.db
       .prepare("INSERT OR REPLACE INTO mandates VALUES (?,?,?,?,?,?,?,?)")
@@ -147,6 +281,7 @@ export class Store {
     return {
       id: r.id, goal: r.goal, totalBudget: BigInt(r.total_budget), perAgentCap: BigInt(r.per_agent_cap),
       allowedRecipients: JSON.parse(r.allowed_recipients), allowedAsset: r.allowed_asset,
+      allowedServices: m_allowedServices(r),
       maxRetries: r.max_retries, status: r.status,
     };
   }
@@ -155,7 +290,6 @@ export class Store {
     this.db
       .prepare("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?)")
       .run(t.id, t.mandateId, t.role, t.agentAccount, t.description, t.status, t.retries, JSON.stringify(t.evidence));
-    this.audit(t.mandateId, "TASK_CREATED", { taskId: t.id, role: t.role, agent: t.agentAccount });
   }
 
   getTask(id: string): Task {
@@ -163,56 +297,80 @@ export class Store {
     if (!r) throw new Error(`Task ${id} not found`);
     return {
       id: r.id, mandateId: r.mandate_id, role: r.role, agentAccount: r.agent_account,
-      description: r.description, status: r.status, retries: r.retries, evidence: JSON.parse(r.evidence),
+      description: r.description, status: r.status, retries: r.retries,
+      evidence: JSON.parse(r.evidence),
     };
   }
 
   updateTask(id: string, patch: Partial<Pick<Task, "status" | "retries" | "evidence">>) {
-    const t = { ...this.getTask(id), ...patch };
-    this.db.prepare("UPDATE tasks SET status=?, retries=?, evidence=? WHERE id=?").run(t.status, t.retries, JSON.stringify(t.evidence), id);
+    const cur = this.getTask(id);
+    const status = patch.status ?? cur.status;
+    const retries = patch.retries ?? cur.retries;
+    const evidence = patch.evidence ? JSON.stringify(patch.evidence) : JSON.stringify(cur.evidence);
+    this.db.prepare("UPDATE tasks SET status=?, retries=?, evidence=? WHERE id=?").run(status, retries, evidence, id);
+  }
+
+  recordPayment(p: Omit<PaymentRow, "id"> & { userAccount?: string }): number {
+    const userAcc = p.userAccount || 'default';
+    const r = this.db
+      .prepare(
+        "INSERT INTO payments (mandate_id, task_id, recipient, amount, status, onchain, network, tx_hash, note, user_account) VALUES (?,?,?,?,?,?,?,?,?,?)"
+      )
+      .run(p.mandateId, p.taskId, p.recipient, p.amount.toString(), p.status, p.onchain ? 1 : 0, p.network, p.txHash, p.note, userAcc);
+    return Number(r.lastInsertRowid);
+  }
+
+  updatePayment(id: number, patch: Partial<Pick<PaymentRow, "status" | "onchain" | "network" | "txHash" | "note">>) {
+    const r = this.db.prepare("SELECT * FROM payments WHERE id=?").get(id) as any;
+    if (!r) throw new Error(`Payment ${id} not found`);
+    const status = patch.status ?? r.status;
+    const onchain = patch.onchain !== undefined ? (patch.onchain ? 1 : 0) : r.onchain;
+    const network = patch.network !== undefined ? patch.network : r.network;
+    const txHash = patch.txHash !== undefined ? patch.txHash : r.tx_hash;
+    const note = patch.note !== undefined ? patch.note : r.note;
+    this.db
+      .prepare("UPDATE payments SET status=?, onchain=?, network=?, tx_hash=?, note=? WHERE id=?")
+      .run(status, onchain, network, txHash, note, id);
+  }
+
+  listPayments(mandateId: string): PaymentRow[] {
+    const rows = this.db.prepare("SELECT * FROM payments WHERE mandate_id = ? ORDER BY id ASC").all(mandateId) as any[];
+    return rows.map((r: any) => ({
+      id: r.id,
+      mandateId: r.mandate_id,
+      taskId: r.task_id,
+      recipient: r.recipient,
+      amount: BigInt(r.amount),
+      status: r.status,
+      onchain: Boolean(r.onchain),
+      network: r.network,
+      txHash: r.tx_hash,
+      note: r.note,
+    }));
   }
 
   getSpendState(mandateId: string): SpendState {
     const rows = this.db
-      .prepare("SELECT recipient, amount FROM payments WHERE mandate_id=? AND status IN ('pending','confirmed')")
+      .prepare("SELECT recipient, amount FROM payments WHERE mandate_id=? AND status IN ('pending', 'confirmed')")
       .all(mandateId) as { recipient: string; amount: string }[];
-    const state: SpendState = { totalSpent: 0n, spentByRecipient: {} };
+    let totalSpent = 0n;
+    const spentByRecipient: Record<string, Cents> = {};
     for (const r of rows) {
       const a = BigInt(r.amount);
-      state.totalSpent += a;
-      state.spentByRecipient[r.recipient] = (state.spentByRecipient[r.recipient] ?? 0n) + a;
+      totalSpent += a;
+      spentByRecipient[r.recipient] = (spentByRecipient[r.recipient] ?? 0n) + a;
     }
-    return state;
-  }
-
-  recordPayment(p: Omit<PaymentRow, "id">): number {
-    const res = this.db
-      .prepare("INSERT INTO payments (mandate_id,task_id,recipient,amount,status,onchain,network,tx_hash,note) VALUES (?,?,?,?,?,?,?,?,?)")
-      .run(p.mandateId, p.taskId, p.recipient, p.amount.toString(), p.status, p.onchain ? 1 : 0, p.network, p.txHash, p.note);
-    return Number(res.lastInsertRowid);
-  }
-
-  updatePayment(id: number, patch: Pick<PaymentRow, "status" | "onchain" | "network" | "txHash" | "note">) {
-    this.db
-      .prepare("UPDATE payments SET status=?, onchain=?, network=?, tx_hash=?, note=? WHERE id=?")
-      .run(patch.status, patch.onchain ? 1 : 0, patch.network, patch.txHash, patch.note, id);
-  }
-
-  listPayments(mandateId: string): PaymentRow[] {
-    return (this.db.prepare("SELECT * FROM payments WHERE mandate_id=? ORDER BY id").all(mandateId) as any[]).map((r) => ({
-      id: r.id, mandateId: r.mandate_id, taskId: r.task_id, recipient: r.recipient, amount: BigInt(r.amount),
-      status: r.status, onchain: !!r.onchain, network: r.network, txHash: r.tx_hash, note: r.note,
-    }));
+    return { totalSpent, spentByRecipient };
   }
 
   audit(mandateId: string, event: string, detail: unknown) {
-    this.db.prepare("INSERT INTO audit_log (mandate_id,event,detail) VALUES (?,?,?)").run(mandateId, event, JSON.stringify(detail));
+    this.db.prepare("INSERT INTO audit_log (mandate_id, event, detail) VALUES (?,?,?)").run(mandateId, event, JSON.stringify(detail));
   }
 
   auditLog(mandateId: string) {
-    return this.db.prepare("SELECT id,event,detail,created_at FROM audit_log WHERE mandate_id=? ORDER BY id").all(mandateId) as {
-      id: number; event: string; detail: string; created_at: string;
-    }[];
+    return (this.db.prepare("SELECT * FROM audit_log WHERE mandate_id=? ORDER BY id ASC").all(mandateId) as any[]).map((r) => ({
+      id: r.id, mandateId: r.mandate_id, event: r.event, detail: JSON.parse(r.detail), createdAt: r.created_at,
+    }));
   }
 
   atomic<T>(fn: () => T): T {
@@ -220,4 +378,10 @@ export class Store {
   }
 }
 
-export type { Decision, TaskStatus };
+function m_allowedServices(r: any): string[] {
+  try {
+    return JSON.parse(r.allowed_services || '[]');
+  } catch {
+    return ["supplier_research", "quotation_analysis", "deliverable_audit", "market_research"];
+  }
+}

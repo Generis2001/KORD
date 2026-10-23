@@ -2,7 +2,6 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { JsonRpcProvider } from 'near-api-js';
-import Database from 'better-sqlite3';
 import { Store } from './db.js';
 import { NearExecutor, loadNearConfig } from './near.js';
 import { runAutonomousMandate } from './runner.js';
@@ -28,37 +27,73 @@ function getMimeType(filePath: string): string {
   }
 }
 
-async function getLiveOrLedgerBalance(): Promise<number> {
-  try {
-    const live = await nearExecutor.balanceNear();
-    const parsed = parseFloat(live);
-    if (!isNaN(parsed) && parsed > 0) {
-      store.setTreasuryBalance(parsed);
-      return parsed;
-    }
-  } catch {}
-  return store.getTreasuryBalance();
-}
-
 export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost:3000'}`);
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-mandate-account');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     return res.end();
   }
 
-  // 1. /api/treasury (GET balance, POST fund)
-  if (url.pathname === '/api/treasury') {
+  // Extract user account for isolation (or fallback to default user)
+  const userAccountHeader = (req.headers['x-mandate-account'] as string) || url.searchParams.get('account');
+  const userAccount = (userAccountHeader ? userAccountHeader.trim().toLowerCase() : 'default-user.testnet');
+  store.getOrCreateUser(userAccount, 10.00);
+
+  // 1. /api/accounts (GET list, POST create/switch)
+  if (url.pathname === '/api/accounts') {
     if (req.method === 'GET') {
-      const balance = await getLiveOrLedgerBalance();
+      const users = store.listUsers();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
-        accountId: nearCfg.accountId,
+        activeAccount: userAccount,
+        balanceNear: store.getUserBalance(userAccount).toFixed(2),
+        users
+      }));
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        try {
+          const { accountId, displayName, initialBalance } = JSON.parse(body || '{}');
+          if (!accountId || typeof accountId !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'accountId is required' }));
+          }
+          const cleanId = accountId.trim().toLowerCase();
+          const user = store.getOrCreateUser(cleanId, displayName || cleanId);
+          if (initialBalance && !isNaN(Number(initialBalance))) {
+            store.setUserBalance(cleanId, Math.max(0, Number(initialBalance)));
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            account: cleanId,
+            balanceNear: store.getUserBalance(cleanId).toFixed(2),
+            user
+          }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+  }
+
+  // 2. /api/treasury (GET balance, POST fund)
+  if (url.pathname === '/api/treasury') {
+    if (req.method === 'GET') {
+      const balance = store.getUserBalance(userAccount);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        accountId: userAccount,
         balanceNear: balance.toFixed(2),
         formatted: balance.toFixed(2) + ' NEAR'
       }));
@@ -75,7 +110,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             res.writeHead(400, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'Valid amountNear required' }));
           }
-          const after = store.fundTreasury(amt, note || 'Treasury deposit');
+          const after = store.fundUserBalance(userAccount, amt, note || 'Treasury deposit');
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             success: true,
@@ -91,10 +126,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 2. /api/allowlist (GET, POST, DELETE)
+  // 3. /api/allowlist (GET, POST, DELETE)
   if (url.pathname === '/api/allowlist') {
     if (req.method === 'GET') {
-      const list = store.getAllowlist();
+      const list = store.getAllowlist(userAccount);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(list));
     }
@@ -109,9 +144,9 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             res.writeHead(400, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'accountId is required' }));
           }
-          store.addToAllowlist(accountId.trim().toLowerCase(), label || 'Approved Recipient');
+          store.addToAllowlist(accountId.trim().toLowerCase(), label || 'Approved Recipient', userAccount);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, list: store.getAllowlist() }));
+          res.end(JSON.stringify({ success: true, list: store.getAllowlist(userAccount) }));
         } catch (e: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: e.message }));
@@ -126,11 +161,13 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       req.on('end', () => {
         try {
           const { accountId } = JSON.parse(body || '{}');
-          if (accountId) {
-            store.removeFromAllowlist(accountId);
+          if (!accountId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'accountId is required' }));
           }
+          store.removeFromAllowlist(accountId.trim().toLowerCase(), userAccount);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, list: store.getAllowlist() }));
+          res.end(JSON.stringify({ success: true, list: store.getAllowlist(userAccount) }));
         } catch (e: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: e.message }));
@@ -140,35 +177,70 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 3. /api/ledger
+  // 4. /api/ledger (GET accurately reflects confirmed payments & on-chain txs)
   if (url.pathname === '/api/ledger') {
     try {
-      const db = new Database(dbPath, { readonly: true });
-      const rows = db.prepare('SELECT * FROM payments ORDER BY id DESC LIMIT 40').all();
-      db.close();
-
-      const formatted = rows.map((r: any) => ({
-        id: r.id,
-        mandateId: r.mandate_id,
-        taskId: r.task_id,
-        recipient: r.recipient,
-        amountDollars: (Number(r.amount) / 100).toFixed(2),
-        status: r.status,
-        onchain: Boolean(r.onchain),
-        txHash: r.tx_hash || null,
-        note: r.note || '',
-        createdAt: r.created_at,
-        explorerUrl: r.tx_hash ? `https://explorer.testnet.near.org/transactions/${r.tx_hash}` : null
-      }));
+      const formatted = store.getLedger(userAccount);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(formatted));
-    } catch {
+    } catch (e: any) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify([]));
     }
   }
 
-  // 4. /api/chat
+  // 5. /api/conversations (GET list, POST save, DELETE remove)
+  if (url.pathname === '/api/conversations') {
+    if (req.method === 'GET') {
+      const convos = store.getConversations(userAccount);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(convos));
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        try {
+          const { id, title, domain, messages } = JSON.parse(body || '{}');
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'id is required' }));
+          }
+          store.saveConversation(id, userAccount, title || 'Mandate Session', messages || []);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        try {
+          const { id } = JSON.parse(body || '{}');
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'id is required' }));
+          }
+          store.deleteConversation(id);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+  }
+
+  // 6. /api/chat (Handles natural language directives & autonomous mandates)
   if (url.pathname === '/api/chat' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -177,54 +249,48 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       try {
         const parsed = JSON.parse(body || '{}');
         prompt = (parsed.message || '').trim();
-      } catch {}
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+      }
 
       const lower = prompt.toLowerCase();
 
-      // Case A: Natural Greeting ("hello", "hi", "hey")
-      const isGreeting = /^(hello|hi|hey|good day|greetings|howdy)\b/i.test(lower) || ['hello', 'hi', 'hey'].includes(lower.trim());
-      if (isGreeting) {
-        const balance = await getLiveOrLedgerBalance();
-        const allowlist = store.getAllowlist();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'greeting',
-          treasuryBalance: balance.toFixed(2),
-          message: 'Hello! I am Mandate, your autonomous business agent on NEAR.\n\n' +
-            'I manage payable allowlists, execute on-chain payments, and commission verified work under user-defined spending limits.\n\n' +
-            '• **Treasury Balance:** ' + balance.toFixed(2) + ' NEAR\n' +
-            '• **Approved Payees:** ' + allowlist.length + ' accounts on allowlist\n\n' +
-            'How can I help you today?\n' +
-            '- Pay an account: *"Pay 7 NEAR to zeal.testnet (add to allowlist)"*\n' +
-            '- Fund treasury: *"Fund treasury with 10 NEAR"*\n' +
-            '- View allowlist: *"Show my allowlist"*\n' +
-            '- Commission task: *"Research competitor pricing with $5 cap"*'
-        }));
-      }
+      // Case A: Fund Treasury
+      const fundMatch = lower.match(/fund(?:\s+treasury)?\s+(?:with\s+)?([0-9.]+)\s*near/i) ||
+                        lower.match(/add\s+([0-9.]+)\s*near(?:\s+to\s+treasury)?/i) ||
+                        lower.match(/deposit\s+([0-9.]+)\s*near/i);
 
-      // Case B: Fund Treasury Command (e.g. "fund treasury with 10 near", "deposit 5 near")
-      const fundMatch = lower.match(/(?:fund|deposit|add)\s+([\d.]+)\s*near(?:s+(?:to|into)s+treasury)?/i);
       if (fundMatch) {
-        const amountNear = parseFloat(fundMatch[1]);
-        if (!isNaN(amountNear) && amountNear > 0) {
-          const newBal = store.fundTreasury(amountNear, 'User prompt deposit in chat');
+        const amt = parseFloat(fundMatch[1]);
+        if (!isNaN(amt) && amt > 0) {
+          const after = store.fundUserBalance(userAccount, amt, `Chat deposit of ${amt} NEAR`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({
             type: 'treasury_funded',
-            amountNear,
-            newBalance: newBal.toFixed(2),
-            formatted: newBal.toFixed(2) + ' NEAR',
-            message: '✅ Treasury credited with **' + amountNear.toFixed(2) + ' NEAR**.\n\n• **New Treasury Balance:** ' + newBal.toFixed(2) + ' NEAR.'
+            amountNear: amt,
+            newBalance: after.toFixed(2),
+            message: `Treasury successfully funded with **${amt} NEAR**.\n\n• **Account:** \`${userAccount}\`\n• **New Available Balance:** **${after.toFixed(2)} NEAR**`
           }));
         }
       }
 
-      // Case C: Direct Payment (e.g. "pay 7 near to zeal.testnet (add to mandate's allowlist)")
-      const payMatch = lower.match(/(?:pay|send|transfer)\s+([\d.]+)\s*near\s+(?:to\s+)?([a-z0-9._-]+)/i);
+      // Case B: Balance query
+      if (/balance|how much (?:do i have|near)|treasury balance|check balance/i.test(lower)) {
+        const bal = store.getUserBalance(userAccount);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          type: 'text',
+          message: `Your current treasury balance for \`${userAccount}\` is **${bal.toFixed(2)} NEAR**.`
+        }));
+      }
+
+      // Case C: Direct Payment to recipient
+      const payMatch = lower.match(/(?:pay|transfer|send)\s+([0-9.]+)\s*near\s+(?:to\s+)?([a-z0-9._-]+)/i);
       if (payMatch) {
         const amountNear = parseFloat(payMatch[1]);
         const recipient = payMatch[2].trim().toLowerCase();
-        const shouldAddAllowlist = /add.*allowlist/i.test(lower);
+        const shouldAddAllowlist = /add\s+to\s+allowlist|approve/i.test(lower);
 
         if (isNaN(amountNear) || amountNear <= 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -234,12 +300,12 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           }));
         }
 
-        let isAllowed = store.isAllowed(recipient);
+        let isAllowed = store.isAllowed(recipient, userAccount);
         let addedNow = false;
 
         if (!isAllowed) {
           if (shouldAddAllowlist) {
-            store.addToAllowlist(recipient, 'User Added Payee');
+            store.addToAllowlist(recipient, 'User Added Payee', userAccount);
             isAllowed = true;
             addedNow = true;
           } else {
@@ -257,7 +323,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         }
 
         // Check if sufficient treasury balance
-        const currentBal = store.getTreasuryBalance();
+        const currentBal = store.getUserBalance(userAccount);
         if (currentBal < amountNear) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({
@@ -265,7 +331,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             recipient,
             amountNear,
             error: 'INSUFFICIENT_FUNDS',
-            message: '❌ **Insufficient Treasury Funds:** Requested payment of ' + amountNear + ' NEAR exceeds current Treasury balance of ' + currentBal.toFixed(2) + ' NEAR.\n\nPlease fund your treasury (e.g. *"Fund treasury with 10 NEAR"*) before continuing.'
+            message: '❌ **Insufficient Treasury Funds:** Requested payment of ' + amountNear + ' NEAR exceeds current balance of ' + currentBal.toFixed(2) + ' NEAR.\n\nPlease fund your treasury (e.g. *"Fund treasury with 10 NEAR"*) before continuing.'
           }));
         }
 
@@ -273,7 +339,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         try {
           const amountCents = BigInt(Math.round(amountNear * 1000));
           let txHash = '';
-          let onchain = false;
 
           try {
             const executionResult = await nearExecutor.execute({
@@ -287,7 +352,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
               throw new Error("NEAR network did not return a valid transaction hash.");
             }
             txHash = executionResult.txHash;
-            onchain = true;
           } catch (netErr: any) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
@@ -299,7 +363,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             }));
           }
 
-          // Record in DB payments
+          // Record in DB payments with userAccount tag
           const paymentId = store.recordPayment({
             mandateId: 'direct-payment',
             taskId: `pay-${Date.now()}`,
@@ -309,11 +373,12 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             onchain: true,
             network: 'testnet',
             txHash: txHash,
-            note: 'Direct on-chain transfer of ' + amountNear + ' NEAR to ' + recipient
+            note: 'Direct on-chain transfer of ' + amountNear + ' NEAR to ' + recipient,
+            userAccount
           });
 
-          // Accurately deduct from treasury balance
-          const afterBal = store.deductTreasury(amountNear, 'Transfer to ' + recipient, txHash);
+          // Accurately deduct from user treasury balance
+          const afterBal = store.deductUserBalance(userAccount, amountNear, 'Transfer to ' + recipient, txHash);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({
@@ -344,12 +409,12 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
       // Case D: View Allowlist
       if (/allowlist|payable|who can i pay|approved accounts/i.test(lower)) {
-        const list = store.getAllowlist();
+        const list = store.getAllowlist(userAccount);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
           type: 'allowlist_view',
           allowlist: list,
-          message: 'Here are your currently approved payable accounts on NEAR (' + list.length + ' active):'
+          message: 'Here are your approved payable accounts on NEAR (' + list.length + ' active):'
         }));
       }
 
@@ -357,7 +422,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const addMatch = lower.match(/add\s+([a-z0-9._-]+)\s+to\s+(?:my\s+)?allowlist/i);
       if (addMatch) {
         const newAcc = addMatch[1].trim().toLowerCase();
-        store.addToAllowlist(newAcc, 'Approved Payee');
+        store.addToAllowlist(newAcc, 'Approved Payee', userAccount);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
           type: 'text',
@@ -378,16 +443,29 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       try {
         const result = await runAutonomousMandate({
           goal: prompt.length > 5 ? prompt : undefined,
+          userAccount,
           executorMode: 'near', // Live on-chain NEAR testnet execution
           simulateAttack: true
         });
 
-        // If mandate made an on-chain payout, deduct from treasury accurately
+        // If mandate made an on-chain payout, deduct from user treasury accurately and record in ledger
         if (result && result.payout && result.payout.status === 'confirmed') {
-          store.deductTreasury(0.40, 'Mandate research fee payout: ' + result.payout.recipient, result.payout.txHash || undefined);
+          store.deductUserBalance(userAccount, 0.40, 'Mandate research fee payout: ' + result.payout.recipient, result.payout.txHash || undefined);
+          store.recordPayment({
+            mandateId: result.mandate.id,
+            taskId: result.deliverable.taskId,
+            recipient: result.payout.recipient,
+            amount: 400n, // $4.00
+            status: 'confirmed',
+            onchain: true,
+            network: 'testnet',
+            txHash: result.payout.txHash ?? null,
+            note: 'Disbursed research fee for verified ' + result.mandate.domain + ' deliverable',
+            userAccount
+          });
         }
 
-        const bal = store.getTreasuryBalance();
+        const bal = store.getUserBalance(userAccount);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

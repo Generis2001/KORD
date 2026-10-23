@@ -41,6 +41,11 @@
           </button>
         </nav>
 
+        <div class="nav-section-title">Past Conversations</div>
+        <div class="chat-history-list" id="conversationsListContainer" style="max-height: 220px; overflow-y: auto; margin-bottom: 14px;">
+          <!-- Populated dynamically via /api/conversations -->
+        </div>
+
         <div class="nav-section-title">Quick Actions</div>
         <div class="chat-history-list">
           <div class="history-item" data-action="Pay 7 NEAR to zeal.testnet (add to allowlist)">
@@ -80,10 +85,29 @@
           <button class="sidebar-open-btn" id="sidebarOpenBtn" title="Open sidebar">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          <span class="brand-title">Mandate</span>
+          <div class="brand-wrap">
+            <svg class="mandate-gem brand-gem" viewBox="0 0 48 48" fill="none">
+              <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
+              <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
+              <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
+              <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
+              <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
+              <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
+              <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
+            </svg>
+            <span class="brand-title">Mandate</span>
+          </div>
         </div>
 
-        <div class="right-nav">
+        <div class="right-nav" style="display:flex; align-items:center; gap:10px;">
+          <!-- Account Switcher Badge -->
+          <div class="user-account-badge" id="accountSelectorBtn" title="Switch or Create Mandate Account">
+            <div class="user-avatar-tiny" id="headerAvatar">M</div>
+            <span class="account-name-text" id="headerAccountName">user-1.testnet</span>
+            <span class="account-badge-pill" id="headerBalancePill">10.00 NEAR</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+
           <button class="header-link-btn" id="headerAllowlistBtn">Payable Allowlist</button>
           <button class="header-link-btn" id="headerLedgerBtn">Ledger</button>
         </div>
@@ -263,6 +287,62 @@
             <tr><td colspan="7" class="loading-td">Loading records...</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- MODAL: Mandate Account Manager (Multi-User Isolation) -->
+  <div class="modal-backdrop" id="accountModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          <h2>Mandate Accounts</h2>
+        </div>
+        <button class="modal-close" id="closeAccountModal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:16px;">
+        <!-- Active User Details -->
+        <div style="background: rgba(16, 163, 127, 0.08); border: 1px solid rgba(16, 163, 127, 0.25); border-radius: 10px; padding: 12px 14px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:11px; text-transform:uppercase; color:#94a3b8; font-weight:600; letter-spacing:0.5px;">Active Mandate Profile</div>
+            <div style="font-size:14px; font-weight:600; color:#fff; font-family:var(--font-mono);" id="modalActiveAccountName">user-1.testnet</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px; text-transform:uppercase; color:#94a3b8; font-weight:600;">Isolated Balance</div>
+            <div style="font-size:15px; font-weight:700; color:#10a37f;" id="modalActiveAccountBal">10.00 NEAR</div>
+          </div>
+        </div>
+
+        <!-- Create New Account -->
+        <div>
+          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Create New Mandate Account</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="newAccountIdInput" placeholder="Account ID (e.g. acme-ops.testnet)" class="form-control" style="font-family:var(--font-mono); font-size:13px;">
+            <button class="btn-primary" id="createAccountBtn" style="white-space:nowrap;">Create Account</button>
+          </div>
+          <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:11.5px; color:#8e8e8e;">Each account maintains isolated treasury, allowlist, and chat history.</span>
+            <button class="btn-subtle" id="generateRandomAccountBtn" style="font-size:11.5px; padding:3px 8px;">🎲 Generate ID</button>
+          </div>
+        </div>
+
+        <!-- Switch Account List -->
+        <div>
+          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Switch Active Account</label>
+          <div id="accountsListContainer" style="max-height: 160px; overflow-y: auto;">
+            <!-- Populated via /api/accounts -->
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span class="network-badge">NEAR Testnet Sandboxed Accounts</span>
+        <button class="btn-subtle" onclick="document.getElementById('accountModal').classList.remove('open')">Done</button>
       </div>
     </div>
   </div>

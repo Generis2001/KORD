@@ -1,3 +1,15 @@
+// --- Multi-User Account State ---
+let currentAccount = localStorage.getItem('mandate_current_account');
+if (!currentAccount) {
+  // Generate a distinct sandbox account ID for new users so accounts don't collide
+  const rand = Math.random().toString(36).substring(2, 6);
+  currentAccount = 'client-' + rand + '.testnet';
+  localStorage.setItem('mandate_current_account', currentAccount);
+}
+
+let activeConversationId = 'conv_' + Date.now();
+let conversationMessages = [];
+
 // DOM Elements
 const sidebar = document.getElementById('sidebar');
 const sidebarOpenBtn = document.getElementById('sidebarOpenBtn');
@@ -9,8 +21,22 @@ const chatContainer = document.getElementById('chatContainer');
 const promptInput = document.getElementById('promptInput');
 const sendBtn = document.getElementById('sendBtn');
 const footerTreasuryBalance = document.getElementById('footerTreasuryBalance');
+const headerAccountName = document.getElementById('headerAccountName');
+const headerBalancePill = document.getElementById('headerBalancePill');
+const accountSelectorBtn = document.getElementById('accountSelectorBtn');
+const conversationsListContainer = document.getElementById('conversationsListContainer');
 
-// Allowlist Modal & Elements
+// Account Modal Elements
+const accountModal = document.getElementById('accountModal');
+const closeAccountModal = document.getElementById('closeAccountModal');
+const modalActiveAccountName = document.getElementById('modalActiveAccountName');
+const modalActiveAccountBal = document.getElementById('modalActiveAccountBal');
+const newAccountIdInput = document.getElementById('newAccountIdInput');
+const createAccountBtn = document.getElementById('createAccountBtn');
+const generateRandomAccountBtn = document.getElementById('generateRandomAccountBtn');
+const accountsListContainer = document.getElementById('accountsListContainer');
+
+// Allowlist Modal Elements
 const allowlistModal = document.getElementById('allowlistModal');
 const closeAllowlistModal = document.getElementById('closeAllowlistModal');
 const navAllowlist = document.getElementById('navAllowlist');
@@ -21,7 +47,7 @@ const newAccountInput = document.getElementById('newAccountInput');
 const newAccountLabel = document.getElementById('newAccountLabel');
 const addAccountBtn = document.getElementById('addAccountBtn');
 
-// Fund Modal & Elements
+// Fund Modal Elements
 const fundModal = document.getElementById('fundModal');
 const closeFundModal = document.getElementById('closeFundModal');
 const openFundModalBtn = document.getElementById('openFundModalBtn');
@@ -29,13 +55,21 @@ const customFundInput = document.getElementById('customFundInput');
 const confirmFundBtn = document.getElementById('confirmFundBtn');
 const modalTreasuryBal = document.getElementById('modalTreasuryBal');
 
-// Ledger Modal & Elements
+// Ledger Modal Elements
 const ledgerModal = document.getElementById('ledgerModal');
 const closeLedgerModal = document.getElementById('closeLedgerModal');
 const navLedger = document.getElementById('navLedger');
 const headerLedgerBtn = document.getElementById('headerLedgerBtn');
 const ledgerTableBody = document.getElementById('ledgerTableBody');
 const toastNotify = document.getElementById('toastNotify');
+
+// Helper for authenticated/isolated headers
+function getApiHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'x-mandate-account': currentAccount
+  };
+}
 
 // Sidebar toggle
 sidebarOpenBtn.addEventListener('click', () => sidebar.classList.remove('collapsed'));
@@ -52,12 +86,19 @@ function updateTreasuryUI(balStr) {
   const formatted = balStr.includes('NEAR') ? balStr : balStr + ' NEAR';
   if (footerTreasuryBalance) footerTreasuryBalance.textContent = formatted;
   if (modalTreasuryBal) modalTreasuryBal.textContent = formatted;
+  if (headerBalancePill) headerBalancePill.textContent = formatted;
+  if (modalActiveAccountBal) modalActiveAccountBal.textContent = formatted;
 }
 
-// Fetch Treasury Balance
+function updateAccountBadgeUI() {
+  if (headerAccountName) headerAccountName.textContent = currentAccount;
+  if (modalActiveAccountName) modalActiveAccountName.textContent = currentAccount;
+}
+
+// Fetch Treasury Balance for current account
 async function loadTreasuryBalance() {
   try {
-    const res = await fetch('/api/treasury');
+    const res = await fetch('/api/treasury', { headers: getApiHeaders() });
     const data = await res.json();
     if (data && data.formatted) {
       updateTreasuryUI(data.formatted);
@@ -72,328 +113,559 @@ window.fundDirectly = async function(amount) {
   try {
     const res = await fetch('/api/treasury', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders(),
       body: JSON.stringify({ amountNear: amount, note: 'Quick deposit' })
     });
     const data = await res.json();
     if (data.success) {
       updateTreasuryUI(data.formatted);
-      showToast(`Deposited ${amount} NEAR to treasury`);
+      showToast('Funded +' + amount + ' NEAR to ' + currentAccount);
       fundModal.classList.remove('open');
+      loadLedger();
     }
-  } catch {
-    showToast('Failed to fund treasury');
+  } catch (err) {
+    alert('Deposit failed: ' + err.message);
   }
 };
 
-confirmFundBtn.addEventListener('click', () => {
-  const amt = parseFloat(customFundInput.value);
-  if (!isNaN(amt) && amt > 0) {
-    customFundInput.value = '';
-    fundDirectly(amt);
+confirmFundBtn.addEventListener('click', async () => {
+  const val = parseFloat(customFundInput.value);
+  if (isNaN(val) || val <= 0) {
+    alert('Please enter a valid NEAR amount');
+    return;
   }
+  confirmFundBtn.disabled = true;
+  confirmFundBtn.textContent = 'Depositing...';
+  await window.fundDirectly(val);
+  customFundInput.value = '';
+  confirmFundBtn.disabled = false;
+  confirmFundBtn.textContent = 'Deposit Funds';
 });
 
-openFundModalBtn.addEventListener('click', () => {
-  fundModal.classList.add('open');
-  loadTreasuryBalance();
-});
+// Modal Toggles
+openFundModalBtn.addEventListener('click', () => fundModal.classList.add('open'));
 closeFundModal.addEventListener('click', () => fundModal.classList.remove('open'));
 
-// Auto-expand textarea
-promptInput.addEventListener('input', () => {
-  promptInput.style.height = 'auto';
-  promptInput.style.height = Math.min(promptInput.scrollHeight, 140) + 'px';
-  sendBtn.disabled = promptInput.value.trim().length === 0;
-});
-
-// Submit on Enter
-promptInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    handleSend();
-  }
-});
-sendBtn.addEventListener('click', () => handleSend());
-
-// Modals Open/Close
-[navAllowlist, headerAllowlistBtn].forEach(btn => {
-  if (btn) btn.addEventListener('click', () => {
-    allowlistModal.classList.add('open');
-    loadAllowlist();
-  });
-});
+function openAllowlist() {
+  allowlistModal.classList.add('open');
+  loadAllowlist();
+}
+navAllowlist.addEventListener('click', openAllowlist);
+headerAllowlistBtn.addEventListener('click', openAllowlist);
 closeAllowlistModal.addEventListener('click', () => allowlistModal.classList.remove('open'));
 
-[navLedger, headerLedgerBtn].forEach(btn => {
-  if (btn) btn.addEventListener('click', () => {
-    ledgerModal.classList.add('open');
-    loadLedger();
-  });
-});
+function openLedger() {
+  ledgerModal.classList.add('open');
+  loadLedger();
+}
+navLedger.addEventListener('click', openLedger);
+headerLedgerBtn.addEventListener('click', openLedger);
 closeLedgerModal.addEventListener('click', () => ledgerModal.classList.remove('open'));
 
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    allowlistModal.classList.remove('open');
-    fundModal.classList.remove('open');
-    ledgerModal.classList.remove('open');
+// Account Modal Listeners
+accountSelectorBtn.addEventListener('click', () => {
+  accountModal.classList.add('open');
+  loadAccountsList();
+});
+closeAccountModal.addEventListener('click', () => accountModal.classList.remove('open'));
+
+// Load Accounts List
+async function loadAccountsList() {
+  try {
+    const res = await fetch('/api/accounts', { headers: getApiHeaders() });
+    const data = await res.json();
+    if (data && data.users) {
+      accountsListContainer.innerHTML = data.users.map(u => {
+        const isActive = u.accountId.toLowerCase() === currentAccount.toLowerCase();
+        return `
+          <div class="account-card-item ${isActive ? 'active' : ''}" onclick="switchAccount('${escapeHtml(u.accountId)}')">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:14px;">${isActive ? '🟢' : '⚪'}</span>
+              <span style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:${isActive ? '#10a37f' : '#fff'};">${escapeHtml(u.accountId)}</span>
+            </div>
+            <span style="font-size:12px; color:#94a3b8; font-weight:500;">${Number(u.balanceNear).toFixed(2)} NEAR</span>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (err) {
+    accountsListContainer.innerHTML = '<div style="font-size:12px; color:#ef4444;">Failed to load accounts.</div>';
+  }
+}
+
+window.switchAccount = function(newAccId) {
+  if (!newAccId || newAccId === currentAccount) {
+    accountModal.classList.remove('open');
+    return;
+  }
+  currentAccount = newAccId.trim().toLowerCase();
+  localStorage.setItem('mandate_current_account', currentAccount);
+  updateAccountBadgeUI();
+  accountModal.classList.remove('open');
+  showToast('Switched account to ' + currentAccount);
+  resetChatToNew();
+  loadTreasuryBalance();
+  loadAllowlist();
+  loadLedger();
+  loadConversationsList();
+};
+
+createAccountBtn.addEventListener('click', async () => {
+  const newId = (newAccountIdInput.value || '').trim().toLowerCase();
+  if (!newId) {
+    alert('Please enter an account name or ID (e.g. acme-ops.testnet)');
+    return;
+  }
+  const formattedId = newId.endsWith('.testnet') ? newId : newId + '.testnet';
+  try {
+    createAccountBtn.disabled = true;
+    createAccountBtn.textContent = 'Creating...';
+    const res = await fetch('/api/accounts', {
+      method: 'POST',
+      headers: getApiHeaders(),
+      body: JSON.stringify({ accountId: formattedId, initialBalance: 15.00 })
+    });
+    const data = await res.json();
+    if (data.success) {
+      newAccountIdInput.value = '';
+      window.switchAccount(formattedId);
+    } else {
+      alert(data.error || 'Failed to create account');
+    }
+  } catch (err) {
+    alert('Error creating account: ' + err.message);
+  } finally {
+    createAccountBtn.disabled = false;
+    createAccountBtn.textContent = 'Create Account';
   }
 });
+
+generateRandomAccountBtn.addEventListener('click', () => {
+  const rand = Math.random().toString(36).substring(2, 6);
+  newAccountIdInput.value = 'agent-' + rand + '.testnet';
+});
+
+// Load Payable Allowlist
+async function loadAllowlist() {
+  allowlistItemsContainer.innerHTML = '<div class="loading-spinner">Loading approved accounts...</div>';
+  try {
+    const res = await fetch('/api/allowlist', { headers: getApiHeaders() });
+    const list = await res.json();
+    if (allowlistBadge) allowlistBadge.textContent = list.length;
+    if (list.length === 0) {
+      allowlistItemsContainer.innerHTML = '<div class="empty-state">No approved recipients. Add one above.</div>';
+      return;
+    }
+    allowlistItemsContainer.innerHTML = list.map(item => `
+      <div class="allowlist-row">
+        <div class="allowlist-acc-info">
+          <span class="allowlist-acc-name">${escapeHtml(item.accountId)}</span>
+          <span class="allowlist-acc-label">${escapeHtml(item.label || 'Approved Payee')}</span>
+        </div>
+        <button class="btn-subtle btn-remove" onclick="removeAllowlist('${escapeHtml(item.accountId)}')">Remove</button>
+      </div>
+    `).join('');
+  } catch (err) {
+    allowlistItemsContainer.innerHTML = '<div class="empty-state error">Failed to load allowlist.</div>';
+  }
+}
 
 // Add Account to Allowlist
 addAccountBtn.addEventListener('click', async () => {
-  const accountId = newAccountInput.value.trim().toLowerCase();
+  const acc = newAccountInput.value.trim().toLowerCase();
   const label = newAccountLabel.value.trim() || 'Approved Recipient';
-  if (!accountId) return;
-
+  if (!acc) return;
+  addAccountBtn.disabled = true;
+  addAccountBtn.textContent = 'Adding...';
   try {
     const res = await fetch('/api/allowlist', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accountId, label })
+      headers: getApiHeaders(),
+      body: JSON.stringify({ accountId: acc, label })
     });
     const data = await res.json();
-    newAccountInput.value = '';
-    newAccountLabel.value = '';
-    renderAllowlist(data.list);
-    showToast(`Added ${accountId} to allowlist`);
+    if (data.success) {
+      newAccountInput.value = '';
+      newAccountLabel.value = '';
+      showToast('Added ' + acc + ' to allowlist');
+      loadAllowlist();
+    }
   } catch (err) {
-    showToast('Failed to add account');
+    alert('Failed to add: ' + err.message);
+  } finally {
+    addAccountBtn.disabled = false;
+    addAccountBtn.textContent = 'Add to Allowlist';
   }
 });
 
-// Fetch & Render Allowlist
-async function loadAllowlist() {
+window.removeAllowlist = async function(accountId) {
+  if (!confirm('Remove ' + accountId + ' from approved allowlist?')) return;
   try {
-    const res = await fetch('/api/allowlist');
-    const list = await res.json();
-    renderAllowlist(list);
-  } catch (err) {
-    console.error('Allowlist load error', err);
-  }
-}
-
-function renderAllowlist(list) {
-  if (!Array.isArray(list)) return;
-  allowlistBadge.textContent = list.length;
-
-  if (list.length === 0) {
-    allowlistItemsContainer.innerHTML = '<div style="color:#8e8e8e; font-size:13px;">No accounts on allowlist yet.</div>';
-    return;
-  }
-
-  allowlistItemsContainer.innerHTML = list.map(item => `
-    <div class="allowlist-row">
-      <div>
-        <div class="allowlist-acc">${escapeHtml(item.accountId)}</div>
-        <div class="allowlist-lbl">${escapeHtml(item.label || 'Approved Payee')}</div>
-      </div>
-      <div class="allowlist-actions">
-        <button class="btn-mini-pay" onclick="prefillPayment('${escapeHtml(item.accountId)}')">Pay NEAR</button>
-        <button class="btn-mini-del" onclick="removeAllowlistAccount('${escapeHtml(item.accountId)}')">Remove</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-window.prefillPayment = function(accountId) {
-  allowlistModal.classList.remove('open');
-  promptInput.value = `Pay 5 NEAR to ${accountId}`;
-  promptInput.focus();
-  promptInput.dispatchEvent(new Event('input'));
-};
-
-window.removeAllowlistAccount = async function(accountId) {
-  try {
-    const res = await fetch('/api/allowlist', {
+    await fetch('/api/allowlist', {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders(),
       body: JSON.stringify({ accountId })
     });
-    const data = await res.json();
-    renderAllowlist(data.list);
-    showToast(`Removed ${accountId} from allowlist`);
+    showToast('Removed ' + accountId);
+    loadAllowlist();
   } catch (err) {
-    showToast('Failed to remove account');
+    alert('Failed to remove: ' + err.message);
   }
 };
 
-// Fetch & Render Ledger
+// Load Settlement Ledger (Direct from live database & NearBlocks)
 async function loadLedger() {
+  ledgerTableBody.innerHTML = '<tr><td colspan="7" class="loading-td">Querying settlement records...</td></tr>';
   try {
-    const res = await fetch('/api/ledger');
-    const rows = await res.json();
-    if (!rows.length) {
-      ledgerTableBody.innerHTML = '<tr><td colspan="7">No payment events recorded yet.</td></tr>';
+    const res = await fetch('/api/ledger', { headers: getApiHeaders() });
+    const records = await res.json();
+    if (!records || records.length === 0) {
+      ledgerTableBody.innerHTML = `
+        <tr>
+          <td colspan="7" class="empty-td" style="padding:24px; text-align:center; color:#94a3b8;">
+            No settlement disbursements recorded for <code>${escapeHtml(currentAccount)}</code> yet.<br>
+            <span style="font-size:12px; color:#64748b; margin-top:4px; display:inline-block;">
+              Run an autonomous mandate or send NEAR to see live verified settlements.
+            </span>
+          </td>
+        </tr>
+      `;
       return;
     }
-    ledgerTableBody.innerHTML = rows.map(r => `
-      <tr>
-        <td>#${r.id}</td>
-        <td><strong>${escapeHtml(r.mandateId)}</strong><br><small style="color:#8e8e8e">${escapeHtml(r.taskId)}</small></td>
-        <td style="font-family:var(--font-mono); font-size:12px;">${escapeHtml(r.recipient)}</td>
-        <td><strong>$${r.amountDollars}</strong></td>
-        <td>
-          <span style="color:${r.status === 'confirmed' ? '#10a37f' : '#ef4444'}; font-weight:600; text-transform:uppercase;">
-            ${r.status}
-          </span>
-        </td>
-        <td>
-          ${r.txHash ? `<a href="${r.explorerUrl}" target="_blank" style="color:#10a37f; text-decoration:none;">${r.txHash.slice(0, 10)}... ↗</a>` : '-'}
-        </td>
-        <td style="max-width:240px; font-size:12px; color:#b4b4b4;">${escapeHtml(r.note)}</td>
-      </tr>
-    `).join('');
+    ledgerTableBody.innerHTML = records.map(r => {
+      const isConfirmed = r.status === 'confirmed';
+      const statusBadge = isConfirmed
+        ? '<span class="pill pill-success">CONFIRMED</span>'
+        : '<span class="pill pill-danger">DENIED</span>';
+      
+      const explorerLink = r.txHash
+        ? `<a href="https://testnet.nearblocks.io/txns/${r.txHash}" target="_blank" rel="noopener noreferrer" class="link-mono">${r.txHash.slice(0, 10)}...</a>`
+        : '<span style="color:#64748b;">-</span>';
+
+      const amountDisplay = r.amountNear
+        ? r.amountDollars + ' (' + r.amountNear + ' NEAR)'
+        : r.amountDollars;
+
+      return `
+        <tr>
+          <td><code class="tx-id">#${r.id}</code></td>
+          <td style="font-size:12.5px; color:#cbd5e1; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.mandateId || r.taskId || '')}">
+            ${escapeHtml(r.mandateId || r.taskId || 'Direct Transfer')}
+          </td>
+          <td><code class="link-mono">${escapeHtml(r.recipient)}</code></td>
+          <td style="font-weight:600; color:#fff;">${escapeHtml(amountDisplay)}</td>
+          <td>${statusBadge}</td>
+          <td>${explorerLink}</td>
+          <td style="font-size:12px; color:#94a3b8;">${escapeHtml(r.note || '-')}</td>
+        </tr>
+      `;
+    }).join('');
   } catch (err) {
-    console.error('Ledger error', err);
+    ledgerTableBody.innerHTML = '<tr><td colspan="7" class="empty-td error">Failed to load ledger records.</td></tr>';
   }
 }
 
-// Suggestion card clicks
+// --- Chat History & Conversations ---
+async function loadConversationsList() {
+  if (!conversationsListContainer) return;
+  try {
+    const res = await fetch('/api/conversations', { headers: getApiHeaders() });
+    const convos = await res.json();
+    if (!convos || convos.length === 0) {
+      conversationsListContainer.innerHTML = '<div style="font-size:12px; color:#64748b; padding:6px 10px;">No saved conversations.</div>';
+      return;
+    }
+    conversationsListContainer.innerHTML = convos.map(c => {
+      const isActive = c.id === activeConversationId;
+      return `
+        <div class="history-item ${isActive ? 'active' : ''}" onclick="switchConversation('${escapeHtml(c.id)}')">
+          <div class="history-title-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px;">${escapeHtml(c.title || 'Mandate Session')}</span>
+          </div>
+          <button class="history-delete-btn" onclick="deleteConversation(event, '${escapeHtml(c.id)}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load conversations', err);
+  }
+}
+
+async function persistCurrentConversation() {
+  if (conversationMessages.length === 0) return;
+  const firstUserMsg = conversationMessages.find(m => m.role === 'user');
+  const title = firstUserMsg ? firstUserMsg.text.slice(0, 36) + (firstUserMsg.text.length > 36 ? '...' : '') : 'Mandate Session';
+  try {
+    await fetch('/api/conversations', {
+      method: 'POST',
+      headers: getApiHeaders(),
+      body: JSON.stringify({
+        id: activeConversationId,
+        title,
+        domain: 'mandate',
+        messages: conversationMessages
+      })
+    });
+    loadConversationsList();
+  } catch (err) {
+    console.error('Failed to save conversation', err);
+  }
+}
+
+window.switchConversation = async function(convId) {
+  try {
+    const res = await fetch('/api/conversations', { headers: getApiHeaders() });
+    const convos = await res.json();
+    const target = convos.find(c => c.id === convId);
+    if (!target) return;
+    activeConversationId = target.id;
+    conversationMessages = JSON.parse(target.messagesJson || '[]');
+    renderConversationMessages();
+    loadConversationsList();
+  } catch (err) {
+    console.error('Error switching conversation', err);
+  }
+};
+
+window.deleteConversation = async function(e, convId) {
+  e.stopPropagation();
+  try {
+    await fetch('/api/conversations', {
+      method: 'DELETE',
+      headers: getApiHeaders(),
+      body: JSON.stringify({ id: convId })
+    });
+    if (activeConversationId === convId) {
+      resetChatToNew();
+    }
+    loadConversationsList();
+  } catch (err) {
+    console.error('Error deleting conversation', err);
+  }
+};
+
+function resetChatToNew() {
+  activeConversationId = 'conv_' + Date.now();
+  conversationMessages = [];
+  messagesStream.innerHTML = '';
+  heroScreen.style.display = 'flex';
+  promptInput.value = '';
+  loadConversationsList();
+}
+
+function renderConversationMessages() {
+  messagesStream.innerHTML = '';
+  if (conversationMessages.length === 0) {
+    heroScreen.style.display = 'flex';
+    return;
+  }
+  heroScreen.style.display = 'none';
+  conversationMessages.forEach(msg => {
+    if (msg.role === 'user') {
+      appendUserMessage(msg.text, false);
+    } else if (msg.data) {
+      const rowId = 'msg-' + Math.random().toString(36).substring(2, 9);
+      appendAssistantLoading(rowId);
+      renderAssistantResponse(rowId, msg.data, false);
+    }
+  });
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+newChatBtn.addEventListener('click', resetChatToNew);
+
+// --- Chat Messaging & Interactions ---
+promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    handleSubmit();
+  }
+});
+sendBtn.addEventListener('click', handleSubmit);
+
 document.querySelectorAll('.suggestion-card').forEach(card => {
   card.addEventListener('click', () => {
-    const prompt = card.getAttribute('data-prompt');
-    if (prompt) {
-      promptInput.value = prompt;
-      handleSend();
+    const p = card.getAttribute('data-prompt');
+    if (p) {
+      promptInput.value = p;
+      handleSubmit();
     }
   });
 });
 
-// Quick action items in sidebar
-document.querySelectorAll('.history-item').forEach(item => {
+document.querySelectorAll('.history-item[data-action]').forEach(item => {
   item.addEventListener('click', () => {
     const act = item.getAttribute('data-action');
     if (act) {
       promptInput.value = act;
-      handleSend();
+      handleSubmit();
     }
   });
 });
 
-newChatBtn.addEventListener('click', () => {
-  messagesStream.innerHTML = '';
-  heroScreen.style.display = 'flex';
-  promptInput.value = '';
-  promptInput.style.height = 'auto';
-});
-
-// Handle User Sending Message
-async function handleSend() {
-  const query = promptInput.value.trim();
-  if (!query) return;
+async function handleSubmit() {
+  const text = promptInput.value.trim();
+  if (!text) return;
 
   heroScreen.style.display = 'none';
+  appendUserMessage(text, true);
   promptInput.value = '';
   promptInput.style.height = 'auto';
-  sendBtn.disabled = true;
 
-  appendUserMessage(query);
-
-  const placeholderId = 'assist_' + Date.now();
+  const placeholderId = 'loading-' + Date.now();
   appendAssistantLoading(placeholderId);
   chatContainer.scrollTop = chatContainer.scrollHeight;
 
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: query })
+      headers: getApiHeaders(),
+      body: JSON.stringify({ message: text })
     });
     const data = await res.json();
-    renderAssistantResponse(placeholderId, data);
+    renderAssistantResponse(placeholderId, data, true);
+    loadTreasuryBalance();
+    loadLedger();
   } catch (err) {
-    updateAssistantError(placeholderId, err.message || 'Execution error');
-  } finally {
-    sendBtn.disabled = false;
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    renderAssistantResponse(placeholderId, {
+      type: 'text',
+      message: '❌ Error communicating with Mandate: ' + err.message
+    }, true);
   }
 }
 
-function appendUserMessage(text) {
+function appendUserMessage(text, record = true) {
+  if (record) {
+    conversationMessages.push({ role: 'user', text });
+  }
   const row = document.createElement('div');
   row.className = 'message-row user';
-  row.innerHTML = `<div class="message-bubble user">${escapeHtml(text)}</div>`;
+  row.innerHTML = '<div class="message-bubble user">' + escapeHtml(text) + '</div>';
   messagesStream.appendChild(row);
 }
 
+// Glowing Minimalist Gem Loading Indicator
 function appendAssistantLoading(id) {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   row.id = id;
   row.innerHTML = `
-    <div class="assistant-avatar">M</div>
+    <div class="assistant-avatar">
+      <svg class="brand-gem" viewBox="0 0 48 48" fill="none" style="width:18px; height:18px;">
+        <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
+        <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
+        <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
+        <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
+        <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
+        <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
+        <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
+      </svg>
+    </div>
     <div class="message-content">
-      <div style="font-size:13px; color:#8e8e8e;">Processing directive...</div>
+      <div class="gem-loader-wrap">
+        <svg class="mandate-gem-anim" viewBox="0 0 48 48" fill="none">
+          <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
+          <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
+          <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
+          <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
+          <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
+          <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
+          <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
+        </svg>
+        <span class="gem-pulse-status">Processing mandate with specialized agents...</span>
+      </div>
     </div>
   `;
   messagesStream.appendChild(row);
 }
 
-function renderAssistantResponse(id, data) {
+function renderAssistantResponse(id, data, record = true) {
+  if (record) {
+    conversationMessages.push({ role: 'assistant', data });
+    persistCurrentConversation();
+  }
+
   const el = document.getElementById(id);
   if (!el) return;
+
+  const gemAvatar = `
+    <div class="assistant-avatar">
+      <svg class="brand-gem" viewBox="0 0 48 48" fill="none" style="width:18px; height:18px;">
+        <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
+        <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
+        <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
+        <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
+        <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
+        <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
+        <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
+      </svg>
+    </div>
+  `;
 
   // 1. Payment Confirmed (Deduction)
   if (data.type === 'payment_confirmed') {
     el.innerHTML = `
-      <div class="assistant-avatar">M</div>
+      ${gemAvatar}
       <div class="message-content">
         <p>${escapeHtml(data.message)}</p>
         <div class="receipt-card">
           <div class="receipt-top">
-            <span class="receipt-badge-confirmed">CONFIRMED ON-CHAIN</span>
+            <span class="receipt-badge-confirmed">ON-CHAIN SETTLEMENT CONFIRMED</span>
             <span style="font-size:12px; color:#8e8e8e;">NEAR Testnet</span>
           </div>
           <div class="receipt-amount-row">
-            -${data.amountNear} <span class="receipt-unit">NEAR</span>
+            <span>${escapeHtml(data.amountNear)}</span>
+            <span class="receipt-unit">NEAR</span>
           </div>
           <div class="receipt-meta">
             <div class="receipt-meta-row">
               <span>Recipient:</span>
               <strong>${escapeHtml(data.recipient)}</strong>
             </div>
-            ${data.addedToAllowlist ? `
-              <div class="receipt-meta-row">
-                <span>Allowlist:</span>
-                <span style="color:#10a37f; font-weight:600;">Added to Mandate Allowlist</span>
-              </div>
-            ` : ''}
             <div class="receipt-meta-row">
-              <span>Transaction:</span>
-              <a href="${data.explorerUrl}" target="_blank" style="color:#10a37f; text-decoration:none;">
-                ${data.txHash ? data.txHash.slice(0, 16) + '...' : 'View Explorer'} ↗
-              </a>
+              <span>Account:</span>
+              <strong style="color:#10a37f;">${escapeHtml(currentAccount)}</strong>
             </div>
             <div class="receipt-meta-row">
-              <span>New Treasury Balance:</span>
-              <strong style="color:#10a37f;">${data.remainingBalance} NEAR</strong>
+              <span>Transaction Hash:</span>
+              <strong>${escapeHtml(data.txHash ? data.txHash.slice(0, 16) + '...' : 'Verified')}</strong>
+            </div>
+            <div class="receipt-meta-row">
+              <span>Explorer Receipt:</span>
+              <a href="${data.explorerUrl || '#'}" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline;">View on NearBlocks ↗</a>
             </div>
           </div>
         </div>
       </div>
     `;
-    updateTreasuryUI(data.remainingBalance);
-    loadAllowlist();
+    if (data.remainingBalance) updateTreasuryUI(data.remainingBalance);
     return;
   }
 
-  // 2. Treasury Funded (Increment)
+  // 2. Treasury Funded
   if (data.type === 'treasury_funded') {
     el.innerHTML = `
-      <div class="assistant-avatar">M</div>
+      ${gemAvatar}
       <div class="message-content">
-        <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(data.message)}</div>
-        <div class="receipt-card" style="border-left: 3px solid #10a37f;">
+        <div class="receipt-card">
           <div class="receipt-top">
-            <span class="receipt-badge-confirmed">TREASURY DEPOSIT</span>
-            <span style="font-size:12px; color:#10a37f; font-weight:700;">+${data.amountNear} NEAR</span>
+            <span class="receipt-badge-confirmed">TREASURY DEPOSIT CONFIRMED</span>
           </div>
-          <div class="receipt-meta" style="margin-top:6px;">
+          <div class="receipt-amount-row">
+            <span>+${escapeHtml(data.amountNear)}</span>
+            <span class="receipt-unit">NEAR</span>
+          </div>
+          <div class="receipt-meta">
             <div class="receipt-meta-row">
-              <span>Updated Balance:</span>
-              <strong style="color:#10a37f;">${data.newBalance} NEAR</strong>
+              <span>Target Account:</span>
+              <strong style="color:#10a37f;">${escapeHtml(currentAccount)}</strong>
+            </div>
+            <div class="receipt-meta-row">
+              <span>New Available Balance:</span>
+              <strong>${escapeHtml(data.newBalance)} NEAR</strong>
             </div>
           </div>
         </div>
@@ -416,7 +688,7 @@ function renderAssistantResponse(id, data) {
     `).join('');
 
     el.innerHTML = `
-      <div class="assistant-avatar">M</div>
+      ${gemAvatar}
       <div class="message-content">
         <p>${escapeHtml(data.message)}</p>
         <div class="receipt-card">
@@ -436,7 +708,7 @@ function renderAssistantResponse(id, data) {
   if (data.type === 'greeting' || data.type === 'text' || data.type === 'allowlist_warning' || data.type === 'security_notice' || data.type === 'payment_failed') {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     el.innerHTML = `
-      <div class="assistant-avatar">M</div>
+      ${gemAvatar}
       <div class="message-content">
         <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(data.message)}</div>
       </div>
@@ -444,7 +716,7 @@ function renderAssistantResponse(id, data) {
     return;
   }
 
-  // 5. Mandate Execution Result (Strictly Aligned Executive Experience)
+  // 5. Mandate Execution Result (Strictly Aligned Executive Experience with 4 Specialized Roles)
   if (data.mandateResult) {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     const res = data.mandateResult;
@@ -452,8 +724,40 @@ function renderAssistantResponse(id, data) {
       ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
       : null;
 
+    const delegationRows = res.delegation.map(d => `
+      <div style="display:flex; align-items:flex-start; gap:8px;">
+        <span style="color:#38bdf8; font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
+        <span style="color:#cbd5e1; flex:1;">${escapeHtml(d.description)}</span>
+        <code style="font-size:11px; color:#64748b; font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
+      </div>
+    `).join('');
+
+    const attacks = (res.attackSimulation && res.attackSimulation.length > 0) ? `
+      <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:12px;">
+        <div style="font-size:12px; font-weight:600; color:#ef4444; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">
+          Enforced Restrictions & Guardrails (Intercepted Actions)
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
+          ${res.attackSimulation.map(att => `
+            <div style="background:rgba(239,68,68,0.1); border-left:3px solid #ef4444; padding:8px 10px; border-radius:4px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-weight:600; color:#fca5a5;">${escapeHtml(att.attempt)}</span>
+                <span style="color:#ef4444; font-weight:700; font-size:11px;">🛑 ${att.status}</span>
+              </div>
+              <ul style="margin:4px 0 0 16px; padding:0; color:#f87171; font-size:11.5px; line-height:1.4;">
+                ${att.reasons.map(r => `<li>${escapeHtml(r.message)}</li>`).join('')}
+              </ul>
+            </div>
+          `).join('')}
+        </div>
+        <div style="font-size:11.5px; color:#94a3b8; margin-top:8px; font-style:italic;">
+          The agents performed the research autonomously within their permissions, while restricted purchase actions remained strictly under your control.
+        </div>
+      </div>
+    ` : '';
+
     el.innerHTML = `
-      <div class="assistant-avatar">M</div>
+      ${gemAvatar}
       <div class="message-content" style="max-width:100%;">
         <div style="font-size:15px; font-weight:600; color:#fff; margin-bottom:8px;">
           Autonomous Mandate Executed · Spending Guardrails Enforced
@@ -476,17 +780,11 @@ function renderAssistantResponse(id, data) {
           </div>
         </div>
 
-        <!-- 2. Specialized Multi-Agent Roles -->
+        <!-- 2. Specialized Multi-Agent Roles (Researcher -> Analyst -> Verifier -> Orchestrator) -->
         <div style="margin-bottom:12px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 12px;">
           <div style="font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Specialized Agent Delegation</div>
           <div style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
-            ${res.delegation.map(d => `
-              <div style="display:flex; align-items:flex-start; gap:8px;">
-                <span style="color:#38bdf8; font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
-                <span style="color:#cbd5e1; flex:1;">${escapeHtml(d.description)}</span>
-                <code style="font-size:11px; color:#64748b; font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
-              </div>
-            `).join('')}
+            ${delegationRows}
           </div>
         </div>
 
@@ -501,7 +799,7 @@ function renderAssistantResponse(id, data) {
           </div>
         </div>
 
-        <!-- 4. On-Chain Settlement Receipt -->
+        <!-- 4. On-Chain Settlement / NEAR Escrow -->
         <div style="margin-bottom:12px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px;">
           <div style="font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">On-Chain Testnet Settlement</div>
           <div style="font-size:13px; color:#cbd5e1; line-height:1.5;">
@@ -511,64 +809,17 @@ function renderAssistantResponse(id, data) {
           </div>
         </div>
 
-        <!-- 5. Restriction Guardrails Enforced (The Blocked Actions) -->
-        ${res.attackSimulation && res.attackSimulation.length > 0 ? `
-          <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:12px;">
-            <div style="font-size:12px; font-weight:600; color:#ef4444; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">
-              Enforced Restrictions & Guardrails (Intercepted Actions)
-            </div>
-            <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
-              ${res.attackSimulation.map(att => `
-                <div style="background:rgba(0,0,0,0.3); padding:8px 10px; border-radius:6px; border-left:3px solid #ef4444;">
-                  <div style="display:flex; justify-content:space-between; margin-bottom:3px;">
-                    <strong style="color:#f87171;">${escapeHtml(att.attempt)}</strong>
-                    <span style="color:#ef4444; font-weight:700; font-size:11px;">🛑 ${att.status}</span>
-                  </div>
-                  <div style="color:#94a3b8; font-size:11.5px;">
-                    ${att.reasons.map(r => `• ${escapeHtml(r.message)}`).join('<br>')}
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-            <div style="font-size:12px; color:#94a3b8; margin-top:8px;">
-              <em>The agents performed the research autonomously within their permissions, while restricted purchase actions remained strictly under your control.</em>
-            </div>
-          </div>
-        ` : ''}
-
+        <!-- 5. Restriction Guardrails Enforced (Intercepted Actions) -->
+        ${attacks}
       </div>
     `;
-    return;
   }
-
-  // Fallback
-  el.innerHTML = `
-    <div class="assistant-avatar">M</div>
-    <div class="message-content">
-      <p>${escapeHtml(data.message || 'Done.')}</p>
-    </div>
-  `;
 }
 
-function updateAssistantError(id, errMsg) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerHTML = `
-    <div class="assistant-avatar" style="background:#ef4444;">!</div>
-    <div class="message-content">
-      <div style="color:#ef4444; font-weight:600;">Encountered an issue:</div>
-      <div style="color:#fca5a5; font-size:13px;">${escapeHtml(errMsg)}</div>
-    </div>
-  `;
-}
-
-function formatMarkdown(text) {
-  if (!text) return '';
-  return escapeHtml(text)
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08); padding:2px 5px; border-radius:4px; font-family:var(--font-mono); font-size:12.5px;">$1</code>');
-}
+window.prefillPayment = function(acc) {
+  promptInput.value = 'Pay 5 NEAR to ' + acc;
+  promptInput.focus();
+};
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -580,46 +831,62 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Initial load
-loadTreasuryBalance();
-loadAllowlist();
+function formatMarkdown(text) {
+  if (!text) return '';
+  return escapeHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline;">$1</a>');
+}
 
 function renderMarkdownRich(md) {
   if (!md) return '';
-  let html = md;
-  // Code blocks
-  html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:#090d16; padding:10px; border-radius:6px; overflow-x:auto; font-family:var(--font-mono); font-size:12px; margin:10px 0;"><code>$1</code></pre>');
-  // Headers
-  html = html.replace(/^### (.*$)/gim, '<h4 style="margin:14px 0 6px 0; color:#e2e8f0; font-size:13.5px; font-weight:600;">$1</h4>');
-  html = html.replace(/^## (.*$)/gim, '<h3 style="margin:18px 0 8px 0; color:#f8fafc; font-size:15px; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:4px;">$1</h3>');
-  html = html.replace(/^# (.*$)/gim, '<h2 style="margin:20px 0 10px 0; color:#fff; font-size:17px; font-weight:700;">$1</h2>');
-  // Bold & Italic
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;">$1</strong>');
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08); padding:2px 5px; border-radius:4px; font-family:var(--font-mono); font-size:12px; color:#38bdf8;">$1</code>');
-  // Lists
-  html = html.replace(/^\s*-\s+(.*$)/gim, '<li style="margin-left:18px; margin-bottom:4px; color:#cbd5e1;">$1</li>');
-  html = html.replace(/^\s*\d+\.\s+(.*$)/gim, '<li style="margin-left:18px; margin-bottom:4px; color:#cbd5e1;">$1</li>');
-  // Links
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline;">$1</a>');
-  // Tables
-  html = html.replace(/((?:\|[^\n]+\|\r?\n)+)/g, (tableText) => {
-    const lines = tableText.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
-    if (lines.length < 2) return tableText;
-    let tableHtml = '<div style="overflow-x:auto; margin:14px 0;"><table style="width:100%; border-collapse:collapse; font-size:12px; border:1px solid #334155;">';
-    lines.forEach((line, idx) => {
-      if (line.includes('---')) return;
-      const cells = line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
-      tableHtml += '<tr>';
-      cells.forEach(c => {
-        const tag = idx === 0 ? 'th' : 'td';
-        const bg = idx === 0 ? 'background:#1e293b; font-weight:600; color:#f8fafc;' : 'background:rgba(15,23,42,0.65); color:#cbd5e1;';
-        tableHtml += `<${tag} style="${bg} padding:8px 10px; border:1px solid #334155; text-align:left;">${c}</${tag}>`;
-      });
-      tableHtml += '</tr>';
-    });
-    tableHtml += '</table></div>';
-    return tableHtml;
-  });
-  return html.replace(/\n\n/g, '<br><br>');
+  const lines = md.split('\n');
+  let html = '';
+  let inTable = false;
+  let inList = false;
+
+  for (let line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      if (!inTable) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<table class="deliverable-table" style="width:100%; border-collapse:collapse; margin:10px 0; font-size:12.5px;">';
+        inTable = true;
+      }
+      if (trimmed.includes('---')) continue;
+      const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
+      html += '<tr>' + cells.map(c => '<td style="padding:6px 10px; border:1px solid #1e293b;">' + formatMarkdown(c) + '</td>').join('') + '</tr>';
+      continue;
+    } else if (inTable) {
+      html += '</table>';
+      inTable = false;
+    }
+
+    if (trimmed.startsWith('# ')) {
+      html += '<h2 style="font-size:16px; font-weight:700; color:#fff; margin:14px 0 8px 0;">' + formatMarkdown(trimmed.slice(2)) + '</h2>';
+    } else if (trimmed.startsWith('## ')) {
+      html += '<h3 style="font-size:14px; font-weight:600; color:#38bdf8; margin:12px 0 6px 0;">' + formatMarkdown(trimmed.slice(3)) + '</h3>';
+    } else if (trimmed.startsWith('### ')) {
+      html += '<h4 style="font-size:13px; font-weight:600; color:#f1f5f9; margin:10px 0 4px 0;">' + formatMarkdown(trimmed.slice(4)) + '</h4>';
+    } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+      if (!inList) { html += '<ul style="margin:4px 0 8px 18px; padding:0;">'; inList = true; }
+      html += '<li style="margin-bottom:3px;">' + formatMarkdown(trimmed.slice(2)) + '</li>';
+    } else if (trimmed === '---') {
+      html += '<hr style="border:0; border-top:1px solid #1e293b; margin:12px 0;">';
+    } else if (trimmed.length > 0) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<p style="margin-bottom:8px;">' + formatMarkdown(trimmed) + '</p>';
+    }
+  }
+
+  if (inTable) html += '</table>';
+  if (inList) html += '</ul>';
+  return html;
 }
+
+// Initial Boot
+updateAccountBadgeUI();
+loadTreasuryBalance();
+loadConversationsList();

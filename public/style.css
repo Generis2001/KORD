@@ -830,3 +830,228 @@ textarea#promptInput::placeholder {
   .sidebar { position: fixed; height: 100vh; }
   .suggestions-grid { grid-template-columns: 1fr; }
 }
+
+
+/* --- Account Switcher & Manager --- */
+.user-account-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  padding: 4px 10px 4px 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+.user-account-badge:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.user-avatar-tiny {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #10a37f, #065f46);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.account-name-text {
+  font-weight: 500;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-badge-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: #10a37f;
+  background: rgba(16, 163, 127, 0.15);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-gem {
+  width: 22px;
+  height: 22px;
+}
+
+.brand-gem .gem-facet {
+  fill: #10a37f;
+  fill-opacity: 0.4;
+  stroke: rgba(16, 163, 127, 0.6);
+  stroke-width: 1;
+}
+
+.brand-gem .gem-outline {
+  stroke: #10a37f;
+  stroke-width: 1.5;
+  fill: none;
+}
+
+/* --- Minimalistic Gem Loading Animation --- */
+.gem-loader-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: rgba(16, 163, 127, 0.06);
+  border: 1px solid rgba(16, 163, 127, 0.2);
+  border-radius: 12px;
+  width: fit-content;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.mandate-gem-anim {
+  width: 34px;
+  height: 34px;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.mandate-gem-anim .gem-facet {
+  fill: #10a37f;
+  fill-opacity: 0.6;
+  stroke: rgba(16, 163, 127, 0.6);
+  stroke-width: 0.8;
+  animation: gemFacetDiminish 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.mandate-gem-anim .gem-outline {
+  stroke: #10a37f;
+  stroke-width: 1.5;
+  fill: none;
+  animation: gemOutlineManifest 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes gemFacetDiminish {
+  0%, 100% {
+    fill-opacity: 0.65;
+    filter: drop-shadow(0 0 6px rgba(16, 163, 127, 0.7));
+  }
+  50% {
+    fill-opacity: 0.03;
+    filter: drop-shadow(0 0 0px transparent);
+  }
+}
+
+@keyframes gemOutlineManifest {
+  0%, 100% {
+    stroke: rgba(16, 163, 127, 0.35);
+    stroke-width: 1.2;
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  50% {
+    stroke: #00ffc4;
+    stroke-width: 2.2;
+    filter: drop-shadow(0 0 10px #00ffc4) drop-shadow(0 0 18px rgba(0, 255, 196, 0.85));
+  }
+}
+
+.gem-pulse-status {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #a7f3d0;
+  letter-spacing: -0.01em;
+  animation: textBreathe 2.2s ease-in-out infinite;
+}
+
+@keyframes textBreathe {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
+}
+
+/* --- Past Conversations in Sidebar --- */
+.history-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.history-item.active {
+  background: rgba(16, 163, 127, 0.12);
+  color: #10a37f;
+  font-weight: 500;
+}
+
+.history-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.history-delete-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: none;
+}
+
+.history-item:hover .history-delete-btn {
+  display: block;
+}
+
+.history-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.account-card-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 6px;
+  transition: all 0.15s ease;
+}
+
+.account-card-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.account-card-item.active {
+  border-color: #10a37f;
+  background: rgba(16, 163, 127, 0.08);
+}
