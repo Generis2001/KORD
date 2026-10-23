@@ -215,7 +215,7 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
     try {
       console.log("[Mandate AI] Querying OpenAI for dynamic multi-agent execution...");
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: process.env.OPENAI_MODEL || "gpt-6.1-sol",
         messages: [
           {
             role: "system",
@@ -242,7 +242,7 @@ Include realistic commercial URLs for evidence references.`
       const responseText = completion.choices[0]?.message?.content;
       if (responseText && responseText.length > 100) {
         deliverableContent = responseText;
-        aiModelUsed = "OpenAI GPT-4o-mini (Live Dynamic Generation)";
+        aiModelUsed = "OpenAI " + (process.env.OPENAI_MODEL || "gpt-6.1-sol") + " (Live Dynamic Generation)";
         // Extract links from markdown
         const urlMatches = responseText.match(/https?:\/\/[^\s\)\"\'\>]+/g);
         evidence = urlMatches ? Array.from(new Set(urlMatches)).slice(0, 4) : [];

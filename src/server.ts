@@ -1,3 +1,4 @@
+import OpenAI from 'openai';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -14,6 +15,7 @@ const dbPath = process.env.MANDATE_DB ?? (process.env.VERCEL ? path.join('/tmp',
 const store = new Store(dbPath);
 const nearCfg = loadNearConfig();
 const nearExecutor = new NearExecutor(nearCfg);
+const openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 function getMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -472,7 +474,76 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         }));
       }
 
-      // Case G: Default Autonomous Business Task
+      // Case G: Greeting, Capabilities, and Conversational Inquiries
+      const isGreeting = /^(hello|hi|hey|greetings|howdy|good\s+(morning|afternoon|evening|day)|yo\b|sup\b)/i.test(lower) ||
+                         ['hello', 'hi', 'hey', 'hello there', 'hi there', 'hey there'].includes(lower.trim());
+      const isHelpOrCapabilities = /^(what can you do|who are you|how does (?:this|mandate) work|help|what is mandate|what are your agents|explain agents)/i.test(lower);
+      const isSmallTalk = /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
+
+      if (isGreeting || isHelpOrCapabilities || isSmallTalk) {
+        if (openaiClient) {
+          try {
+            const completion = await openaiClient.chat.completions.create({
+              model: process.env.OPENAI_MODEL || 'gpt-6.1-sol',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You are Mandate, an autonomous business agent on NEAR Protocol. You orchestrate four specialized agents: Mandate Orchestrator, Researcher Agent, Analyst Agent, and Verifier Agent. You enforce user-defined spending limits, authorized payable allowlists, and cryptographic settlements on NEAR. Answer conversationally, warmly, and concisely in markdown.'
+                },
+                {
+                  role: 'user',
+                  content: prompt
+                }
+              ],
+              temperature: 0.7,
+              max_tokens: 350
+            });
+            const text = completion.choices[0]?.message?.content;
+            if (text && text.trim().length > 0) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              return res.end(JSON.stringify({
+                type: 'greeting',
+                message: text.trim()
+              }));
+            }
+          } catch (aiErr: any) {
+            console.warn('[Server Chat] OpenAI conversational fallback:', aiErr?.message || aiErr);
+          }
+        }
+
+        const currentBal = store.getUserBalance(userAccount);
+        const greetingMsg = "Hello! I am **Mandate**, your autonomous business agent orchestrated on **NEAR Protocol**.\n\n" +
+          "I coordinate four specialized autonomous agents to execute complex commercial tasks under strict spending limits:\n" +
+          "- 🧭 **Mandate Orchestrator:** Analyzes directives, sets budgets, and decomposes workflows.\n" +
+          "- 🔍 **Researcher Agent:** Gathers verified vendor quotations, corridor liquidity, and market data.\n" +
+          "- 📊 **Analyst Agent:** Compiles comparative pricing matrices and executive recommendations.\n" +
+          "- 🛡️ **Verifier Agent:** Audits evidence, validates acceptance criteria, and releases escrow.\n\n" +
+          "---\n\n" +
+          "### What would you like to run?\n" +
+          "You can give me any autonomous business mandate, such as:\n" +
+          "- *\"Find three suppliers of 100 office chairs, compare their prices and delivery terms, and prepare a recommendation. You may spend up to $20 on research, but cannot purchase without approval.\"*\n" +
+          "- *\"Research competitor pricing and corridor coverage for cross-border stablecoin payments in LATAM and Africa.\"*\n" +
+          "- *\"Audit past purchases and reconcile all testnet transactions.\"*\n\n" +
+          "**Your Treasury:** `" + userAccount + "` · **" + currentBal.toFixed(2) + " NEAR** available.\n" +
+          "You can fund your treasury by typing *\"Fund treasury with 10 NEAR\"* or clicking **Fund Treasury**.";
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          type: 'greeting',
+          message: greetingMsg,
+          treasuryBalance: currentBal.toFixed(2)
+        }));
+      }
+
+      if (prompt.trim().length <= 3) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          type: 'greeting',
+          message: 'Hello! How can I assist with your autonomous business mandates today? Type a mandate directive or try: *"Find three suppliers of 100 office chairs..."*'
+        }));
+      }
+
+      // Case H: Autonomous Business Mandate Execution
       try {
         const result = await runAutonomousMandate({
           goal: prompt.length > 5 ? prompt : undefined,
