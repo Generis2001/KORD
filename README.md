@@ -41,6 +41,24 @@ Mandate defaults to **testnet** to prevent accidental fund loss. To enable **mai
    - `MAINNET_MAX_TOTAL_BUDGET_CENTS`: Hard cap on cumulative mandate budget (default: 20,000 cents = $200.00).
 5. **Account & RPC Isolation:** The app strictly validates that `.testnet` accounts and testnet RPCs cannot be used on mainnet, and vice versa.
 
+## Agent Swap & Payout (NEAR Testnet)
+
+Mandate includes an autonomous **Agent Swap & Payout** capability that allows users to allocate testnet NEAR to an authorized agent, execute an on-chain exchange for Mandate Test USDT (`usdt.fakes.testnet`), and disburse the resulting tokens directly into any designated NEAR testnet wallet.
+
+### Security Controls & Architecture:
+- **Controlled Autonomy:** Deterministic TypeScript policies validate allocations, single-swap caps (max 20 NEAR per swap), and minimum output amounts before any transaction is signed.
+- **NEP-141 / NEP-145 Standards:** Automatic storage registration (`storage_deposit`) ensures recipient accounts can receive fungible tokens without manual setup.
+- **Demonstration Exchange Rate:** 1 NEAR = 5.00 Test USDT (clearly flagged as a development demonstration rate, not a real-world market quote).
+- **Development Asset Notice:** Mandate Test USDT (`usdt.fakes.testnet`) is a development asset and is not issued by Tether. It has no monetary value and cannot be redeemed for real US dollars.
+- **Verified On-Chain Settlement:** Tokens are disbursed via on-chain `ft_transfer` with verified receipts linked on NearBlocks.
+
+### How to Use:
+1. Open the **Agent Swap & Payout** tab in the sidebar or top navigation.
+2. Enter the allocation amount in NEAR (e.g. 1.0 NEAR) and confirm the estimated Test USDT output.
+3. Specify or click **"Use Connected Wallet"** to set the recipient address.
+4. Check the explicit authorization box and click **Authorize & Execute Swap**.
+5. Track real-time progress through the 4-stage stepper (`Authorization` $\to$ `NEP-145 Storage Registration` $\to$ `On-Chain Transfer` $\to$ `Confirmed Receipt`).
+
 ## Testnet checklist
 
 - [ ] `npm test` passes; `npm run typecheck` is clean

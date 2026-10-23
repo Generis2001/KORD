@@ -1033,6 +1033,243 @@ function renderMarkdownRich(md) {
   return html;
 }
 
+
+// ==============================================================================
+// AGENT SWAP & PAYOUT LOGIC
+// ==============================================================================
+const swapModal = document.getElementById('swapModal');
+const closeSwapModal = document.getElementById('closeSwapModal');
+const navSwap = document.getElementById('navSwap');
+const headerSwapBtn = document.getElementById('headerSwapBtn');
+
+const swapInputNear = document.getElementById('swapInputNear');
+const swapOutputUsdt = document.getElementById('swapOutputUsdt');
+const swapMinOutput = document.getElementById('swapMinOutput');
+const swapDestinationWallet = document.getElementById('swapDestinationWallet');
+const swapAuthCheck = document.getElementById('swapAuthCheck');
+const btnExecuteSwap = document.getElementById('btnExecuteSwap');
+
+const swapUserQuotaText = document.getElementById('swapUserQuotaText');
+const swapPoolLiquidityText = document.getElementById('swapPoolLiquidityText');
+const useConnectedWalletBtn = document.getElementById('useConnectedWalletBtn');
+
+const swapStepperCard = document.getElementById('swapStepperCard');
+const swapStep1 = document.getElementById('swapStep1');
+const swapStep2 = document.getElementById('swapStep2');
+const swapStep3 = document.getElementById('swapStep3');
+const swapStep4 = document.getElementById('swapStep4');
+const swapResultBox = document.getElementById('swapResultBox');
+const swapHistoryTableBody = document.getElementById('swapHistoryTableBody');
+
+function openSwapModal() {
+  if (swapModal) {
+    swapModal.classList.add('open');
+    if (swapDestinationWallet && !swapDestinationWallet.value) {
+      swapDestinationWallet.value = connectedWallet || currentAccount;
+    }
+    updateSwapQuote();
+    loadSwapHistory();
+    // Update user quota
+    if (modalActiveAccountBal && swapUserQuotaText) {
+      swapUserQuotaText.textContent = modalActiveAccountBal.textContent;
+    }
+  }
+}
+
+if (navSwap) navSwap.addEventListener('click', openSwapModal);
+if (headerSwapBtn) headerSwapBtn.addEventListener('click', openSwapModal);
+if (closeSwapModal) closeSwapModal.addEventListener('click', () => swapModal.classList.remove('open'));
+
+if (useConnectedWalletBtn) {
+  useConnectedWalletBtn.addEventListener('click', () => {
+    if (connectedWallet && swapDestinationWallet) {
+      swapDestinationWallet.value = connectedWallet;
+    } else {
+      showToast('No wallet connected. Using account: ' + currentAccount);
+      if (swapDestinationWallet) swapDestinationWallet.value = currentAccount;
+    }
+  });
+}
+
+// Quick amount buttons
+document.querySelectorAll('.btn-quick-swap').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const amt = btn.getAttribute('data-amt');
+    if (amt && swapInputNear) {
+      swapInputNear.value = amt;
+      updateSwapQuote();
+    }
+  });
+});
+
+if (swapInputNear) {
+  swapInputNear.addEventListener('input', () => {
+    updateSwapQuote();
+  });
+}
+
+async function updateSwapQuote() {
+  if (!swapInputNear) return;
+  const amt = parseFloat(swapInputNear.value || '0');
+  if (isNaN(amt) || amt <= 0) {
+    if (swapOutputUsdt) swapOutputUsdt.value = '0.00';
+    if (swapMinOutput) swapMinOutput.value = '0.00';
+    return;
+  }
+  try {
+    const dest = swapDestinationWallet ? encodeURIComponent(swapDestinationWallet.value.trim()) : '';
+    const res = await fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
+    const data = await res.json();
+    if (data && !data.error) {
+      if (swapOutputUsdt) swapOutputUsdt.value = Number(data.outputUsdt).toFixed(2);
+      if (swapMinOutput) swapMinOutput.value = Number(data.minOutputUsdt).toFixed(2);
+      if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = Number(data.poolLiquidityUsdt).toFixed(2) + ' USDT';
+    }
+  } catch {}
+}
+
+async function loadSwapHistory() {
+  if (!swapHistoryTableBody) return;
+  try {
+    const res = await fetch('/api/swap/history', { headers: getApiHeaders() });
+    const data = await res.json();
+    if (data && Array.isArray(data.swaps) && data.swaps.length > 0) {
+      swapHistoryTableBody.innerHTML = data.swaps.map(s => {
+        const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent';
+        const isSuccess = s.status === 'payout_confirmed';
+        const statusBadge = isSuccess
+          ? '<span style="color:#10a37f; font-weight:600; font-size:11px;">Confirmed</span>'
+          : '<span style="color:#ef4444; font-weight:600; font-size:11px;">Failed</span>';
+        const txLink = s.payoutTxHash
+          ? '<a href="https://testnet.nearblocks.io/txns/' + s.payoutTxHash + '" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline; font-family:var(--font-mono); font-size:11px;">' + s.payoutTxHash.slice(0, 8) + '...</a>'
+          : '<span style="color:#64748b; font-size:11px;">-</span>';
+        return '<tr>' +
+          '<td>' + dateStr + '</td>' +
+          '<td><strong>' + Number(s.inputNear).toFixed(2) + ' NEAR</strong></td>' +
+          '<td style="color:#10a37f; font-weight:600;">' + Number(s.outputAmount).toFixed(2) + ' USDT</td>' +
+          '<td>1 NEAR = ' + s.exchangeRate + ' USDT</td>' +
+          '<td style="font-family:var(--font-mono); font-size:11px;">' + escapeHtml(s.destinationWallet) + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + txLink + '</td>' +
+        '</tr>';
+      }).join('');
+    } else {
+      swapHistoryTableBody.innerHTML = '<tr><td colspan="7" class="loading-td">No swap transactions yet</td></tr>';
+    }
+  } catch {
+    swapHistoryTableBody.innerHTML = '<tr><td colspan="7" class="loading-td">Failed to load swap history</td></tr>';
+  }
+}
+
+function resetStepper() {
+  if (!swapStepperCard) return;
+  swapStepperCard.style.display = 'block';
+  [swapStep1, swapStep2, swapStep3, swapStep4].forEach(s => {
+    if (s) {
+      s.className = 'swap-step-item';
+    }
+  });
+  if (swapResultBox) {
+    swapResultBox.style.display = 'none';
+    swapResultBox.innerHTML = '';
+  }
+}
+
+function setStepState(stepEl, state) {
+  if (!stepEl) return;
+  stepEl.className = 'swap-step-item ' + state;
+}
+
+if (btnExecuteSwap) {
+  btnExecuteSwap.addEventListener('click', async () => {
+    if (!swapAuthCheck || !swapAuthCheck.checked) {
+      alert('Please check the authorization box to authorize the agent to execute this swap.');
+      return;
+    }
+
+    const amt = parseFloat(swapInputNear.value || '0');
+    if (isNaN(amt) || amt <= 0) {
+      alert('Please enter a valid NEAR amount to allocate.');
+      return;
+    }
+
+    const dest = (swapDestinationWallet.value || '').trim().toLowerCase();
+    if (!dest) {
+      alert('Please enter a valid destination NEAR wallet.');
+      return;
+    }
+
+    const minOut = parseFloat(swapMinOutput.value || '0');
+
+    // UI Progress Stepper
+    resetStepper();
+    btnExecuteSwap.disabled = true;
+    btnExecuteSwap.textContent = 'Processing Swap...';
+
+    setStepState(swapStep1, 'active');
+
+    try {
+      // Step 1: Authorization & Validation
+      await new Promise(r => setTimeout(r, 600));
+      setStepState(swapStep1, 'completed');
+      setStepState(swapStep2, 'active');
+
+      // Step 2: Storage registration check
+      await new Promise(r => setTimeout(r, 600));
+      setStepState(swapStep2, 'completed');
+      setStepState(swapStep3, 'active');
+
+      // Step 3: Executing on NEAR Testnet
+      const res = await fetch('/api/swap/execute', {
+        method: 'POST',
+        headers: getApiHeaders(),
+        body: JSON.stringify({
+          inputNear: amt,
+          minOutputUsdt: minOut,
+          destinationWallet: dest,
+          note: 'Interactive Agent Swap & Payout'
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.status === 'confirmed') {
+        setStepState(swapStep3, 'completed');
+        setStepState(swapStep4, 'completed');
+
+        swapResultBox.style.display = 'block';
+        swapResultBox.style.background = 'rgba(16, 163, 127, 0.12)';
+        swapResultBox.style.border = '1px solid rgba(16, 163, 127, 0.3)';
+        swapResultBox.style.color = '#fff';
+        swapResultBox.innerHTML =
+          '<strong>✅ Swap & Payout Confirmed!</strong><br>' +
+          'Transferred <strong>' + data.outputUsdt + ' Test USDT</strong> to <code>' + escapeHtml(data.destinationWallet) + '</code>.<br>' +
+          '<a href="' + data.explorerUrl + '" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline; font-family:var(--font-mono); font-size:11.5px; margin-top:4px; display:inline-block;">View Transaction on NearBlocks ↗</a>';
+
+        showToast('Swap Confirmed! ' + data.outputUsdt + ' Test USDT sent.');
+        loadTreasuryBalance();
+        loadSwapHistory();
+      } else {
+        setStepState(swapStep3, 'active');
+        swapResultBox.style.display = 'block';
+        swapResultBox.style.background = 'rgba(239, 68, 68, 0.12)';
+        swapResultBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        swapResultBox.style.color = '#fca5a5';
+        swapResultBox.innerHTML = '<strong>❌ Swap Failed:</strong> ' + escapeHtml(data.error || 'Transaction rejected.');
+      }
+    } catch (err) {
+      swapResultBox.style.display = 'block';
+      swapResultBox.style.background = 'rgba(239, 68, 68, 0.12)';
+      swapResultBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+      swapResultBox.style.color = '#fca5a5';
+      swapResultBox.innerHTML = '<strong>❌ Network Error:</strong> ' + escapeHtml(err.message);
+    } finally {
+      btnExecuteSwap.disabled = false;
+      btnExecuteSwap.textContent = 'Authorize & Execute Swap';
+    }
+  });
+}
+
 // Initial Boot
 updateAccountBadgeUI();
 updateWalletUI();

@@ -1132,3 +1132,46 @@ textarea#promptInput::placeholder {
   padding: 4px 10px;
   border-radius: 6px;
 }
+
+/* Agent Swap & Payout Styles */
+.swap-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: #64748b;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+}
+
+.swap-step-item .step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #475569;
+}
+
+.swap-step-item.active {
+  color: #fff;
+  font-weight: 600;
+}
+
+.swap-step-item.active .step-dot {
+  background: #eab308;
+  box-shadow: 0 0 8px #eab308;
+}
+
+.swap-step-item.completed {
+  color: #10a37f;
+}
+
+.swap-step-item.completed .step-dot {
+  background: #10a37f;
+  box-shadow: 0 0 8px #10a37f;
+}
+
+.btn-quick-swap {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+}

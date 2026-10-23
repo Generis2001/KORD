@@ -1,3 +1,4 @@
+import { AgentSwapService, TEST_USDT_DISCLAIMER } from './swap.js';
 import OpenAI from 'openai';
 import http from 'http';
 import fs from 'fs';
@@ -15,6 +16,7 @@ const dbPath = process.env.MANDATE_DB ?? (process.env.VERCEL ? path.join('/tmp',
 const store = new Store(dbPath);
 const nearCfg = loadNearConfig();
 const nearExecutor = new NearExecutor(nearCfg);
+const swapService = new AgentSwapService();
 const openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 function getMimeType(filePath: string): string {
@@ -275,6 +277,69 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
+  // 5.5 /api/swap (quote, history, execute)
+  if (url.pathname === '/api/swap/quote' && req.method === 'GET') {
+    try {
+      const amountNear = parseFloat(url.searchParams.get('amountNear') || '1');
+      const destination = url.searchParams.get('destination') || undefined;
+      const quote = await swapService.getQuote(amountNear, destination);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(quote));
+    } catch (e: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message }));
+    }
+  }
+
+  if (url.pathname === '/api/swap/history' && req.method === 'GET') {
+    try {
+      const history = store.listSwaps(userAccount);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        userAccount,
+        swaps: history
+      }));
+    } catch (e: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message }));
+    }
+  }
+
+  if (url.pathname === '/api/swap/execute' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', async () => {
+      try {
+        const { inputNear, minOutputUsdt, destinationWallet, note } = JSON.parse(body || '{}');
+        const amt = parseFloat(inputNear);
+        if (isNaN(amt) || amt <= 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Valid inputNear amount is required.' }));
+        }
+        if (!destinationWallet || typeof destinationWallet !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Valid destinationWallet is required.' }));
+        }
+
+        const result = await swapService.executeSwap({
+          userAccount,
+          agentAccount: 'mandate-generis-analyst.testnet',
+          inputNear: amt,
+          minOutputUsdt: minOutputUsdt ? parseFloat(minOutputUsdt) : undefined,
+          destinationWallet,
+          note
+        }, store);
+
+        res.writeHead(result.status === 'confirmed' ? 200 : 400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (e: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // 6. /api/chat (Handles natural language directives & autonomous mandates)
   if (url.pathname === '/api/chat' && req.method === 'POST') {
     let body = '';
@@ -290,6 +355,52 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       }
 
       const lower = prompt.toLowerCase();
+
+      // Case Swap: Agent Swap & Payout via chat
+      const swapMatch = lower.match(/(?:swap|exchange)\s+([0-9.]+)\s*near(?:\s+(?:for|to)\s+(?:test\s+)?usdt)?(?:\s+(?:to|for)\s+([a-z0-9._-]+))?/i);
+      if (swapMatch) {
+        const amt = parseFloat(swapMatch[1]);
+        const targetDest = swapMatch[2] ? swapMatch[2].trim().toLowerCase() : userAccount;
+        if (!isNaN(amt) && amt > 0) {
+          try {
+            const swapResult = await swapService.executeSwap({
+              userAccount,
+              agentAccount: 'mandate-generis-analyst.testnet',
+              inputNear: amt,
+              destinationWallet: targetDest,
+              note: `Chat directive swap of ${amt} NEAR for Test USDT`
+            }, store);
+
+            if (swapResult.status === 'confirmed') {
+              const currentBal = store.getUserBalance(userAccount);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              return res.end(JSON.stringify({
+                type: 'text',
+                treasuryBalance: currentBal.toFixed(2),
+                message: `✅ **Agent Swap & Payout Confirmed!**\n\n` +
+                  `• **NEAR Spent:** **${amt} NEAR**\n` +
+                  `• **Test USDT Received:** **${swapResult.outputUsdt} USDT**\n` +
+                  `• **Exchange Rate:** 1 NEAR = ${swapResult.exchangeRate} Test USDT (Demo Rate)\n` +
+                  `• **Destination Wallet:** \`${swapResult.destinationWallet}\`\n` +
+                  `• **Explorer Receipt:** [View on NearBlocks](https://testnet.nearblocks.io/txns/${swapResult.payoutTxHash})\n\n` +
+                  `*Notice: ${TEST_USDT_DISCLAIMER}*`
+              }));
+            } else {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              return res.end(JSON.stringify({
+                type: 'text',
+                message: `❌ **Agent Swap Failed:** ${swapResult.error || 'Unknown error'}\n\nPlease verify your destination wallet and available balance.`
+              }));
+            }
+          } catch (swapErr: any) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+              type: 'text',
+              message: `❌ **Swap Error:** ${swapErr?.message || swapErr}`
+            }));
+          }
+        }
+      }
 
       // Case A: Fund Treasury
       const fundMatch = lower.match(/fund(?:\s+treasury)?\s+(?:with\s+)?([0-9.]+)\s*near/i) ||

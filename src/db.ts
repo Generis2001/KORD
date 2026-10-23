@@ -3,6 +3,26 @@ import type { Cents, Decision, Mandate, SpendState, Task, TaskStatus } from "./t
 
 export type PaymentStatus = "denied" | "pending" | "confirmed" | "failed";
 
+export interface SwapRecord {
+  id: string;
+  userAccount: string;
+  agentAccount: string;
+  inputNear: number;
+  outputToken: string;
+  outputAmount: number;
+  minOutputAmount: number;
+  exchangeRate: number;
+  destinationWallet: string;
+  status: "funding_confirmed" | "payout_confirmed" | "failed";
+  storageTxHash?: string | null;
+  fundingTxHash?: string | null;
+  payoutTxHash?: string | null;
+  note?: string | null;
+  errorReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface PaymentRow {
   id: number;
   mandateId: string;
@@ -84,6 +104,24 @@ export class Store {
         label TEXT NOT NULL,
         balance_near REAL NOT NULL DEFAULT 10.00,
         created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS agent_swaps (
+        id TEXT PRIMARY KEY,
+        user_account TEXT NOT NULL,
+        agent_account TEXT NOT NULL,
+        input_near REAL NOT NULL,
+        output_token TEXT NOT NULL,
+        output_amount REAL NOT NULL,
+        min_output_amount REAL NOT NULL,
+        exchange_rate REAL NOT NULL,
+        destination_wallet TEXT NOT NULL,
+        status TEXT NOT NULL,
+        storage_tx_hash TEXT,
+        funding_tx_hash TEXT,
+        payout_tx_hash TEXT,
+        note TEXT,
+        error_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
         user_account TEXT NOT NULL,
@@ -429,6 +467,104 @@ export class Store {
     return (this.db.prepare("SELECT * FROM audit_log WHERE mandate_id=? ORDER BY id ASC").all(mandateId) as any[]).map((r) => ({
       id: r.id, mandateId: r.mandate_id, event: r.event, detail: JSON.parse(r.detail), createdAt: r.created_at,
     }));
+  }
+
+  // --- Agent Swap & Payout Records ---
+  createSwapRecord(swap: SwapRecord): void {
+    try {
+      this.db.prepare(`
+        INSERT INTO agent_swaps (
+          id, user_account, agent_account, input_near, output_token,
+          output_amount, min_output_amount, exchange_rate, destination_wallet,
+          status, storage_tx_hash, funding_tx_hash, payout_tx_hash, note, error_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        swap.id, swap.userAccount, swap.agentAccount, swap.inputNear, swap.outputToken,
+        swap.outputAmount, swap.minOutputAmount, swap.exchangeRate, swap.destinationWallet,
+        swap.status, swap.storageTxHash || null, swap.fundingTxHash || null,
+        swap.payoutTxHash || null, swap.note || null, swap.errorReason || null
+      );
+    } catch (e: any) {
+      console.warn('createSwapRecord error:', e.message);
+    }
+  }
+
+  updateSwapRecord(id: string, patch: Partial<SwapRecord>): void {
+    try {
+      const existing = this.getSwapRecord(id);
+      if (!existing) return;
+      const status = patch.status ?? existing.status;
+      const storageTx = patch.storageTxHash !== undefined ? patch.storageTxHash : existing.storageTxHash;
+      const payoutTx = patch.payoutTxHash !== undefined ? patch.payoutTxHash : existing.payoutTxHash;
+      const errorReason = patch.errorReason !== undefined ? patch.errorReason : existing.errorReason;
+      this.db.prepare(`
+        UPDATE agent_swaps
+        SET status = ?, storage_tx_hash = ?, payout_tx_hash = ?, error_reason = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(status, storageTx, payoutTx, errorReason, id);
+    } catch (e: any) {
+      console.warn('updateSwapRecord error:', e.message);
+    }
+  }
+
+  getSwapRecord(id: string): SwapRecord | null {
+    try {
+      const r = this.db.prepare("SELECT * FROM agent_swaps WHERE id = ?").get(id) as any;
+      if (!r) return null;
+      return {
+        id: r.id,
+        userAccount: r.user_account,
+        agentAccount: r.agent_account,
+        inputNear: r.input_near,
+        outputToken: r.output_token,
+        outputAmount: r.output_amount,
+        minOutputAmount: r.min_output_amount,
+        exchangeRate: r.exchange_rate,
+        destinationWallet: r.destination_wallet,
+        status: r.status,
+        storageTxHash: r.storage_tx_hash,
+        fundingTxHash: r.funding_tx_hash,
+        payoutTxHash: r.payout_tx_hash,
+        note: r.note,
+        errorReason: r.error_reason,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  listSwaps(userAccount?: string): SwapRecord[] {
+    try {
+      let rows: any[];
+      if (userAccount && userAccount !== 'all') {
+        rows = this.db.prepare("SELECT * FROM agent_swaps WHERE user_account = ? ORDER BY created_at DESC").all(userAccount) as any[];
+      } else {
+        rows = this.db.prepare("SELECT * FROM agent_swaps ORDER BY created_at DESC").all() as any[];
+      }
+      return rows.map((r: any) => ({
+        id: r.id,
+        userAccount: r.user_account,
+        agentAccount: r.agent_account,
+        inputNear: r.input_near,
+        outputToken: r.output_token,
+        outputAmount: r.output_amount,
+        minOutputAmount: r.min_output_amount,
+        exchangeRate: r.exchange_rate,
+        destinationWallet: r.destination_wallet,
+        status: r.status,
+        storageTxHash: r.storage_tx_hash,
+        fundingTxHash: r.funding_tx_hash,
+        payoutTxHash: r.payout_tx_hash,
+        note: r.note,
+        errorReason: r.error_reason,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      }));
+    } catch {
+      return [];
+    }
   }
 
   atomic<T>(fn: () => T): T {
