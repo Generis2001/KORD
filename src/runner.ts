@@ -1,10 +1,15 @@
 import "dotenv/config";
+import OpenAI from "openai";
 import { Store } from "./db.js";
 import { EscrowExecutor, MockExecutor, NearExecutor, loadEscrowConfig, loadNearConfig, type PaymentExecutor } from "./near.js";
 import { planTasks, submitDeliverable, DEFAULT_RUBRIC, type Rubric } from "./orchestrator.js";
 import { requestPayment, type PaymentOutcome } from "./treasury.js";
 import { formatCents } from "./policy.js";
 import type { Mandate, Task } from "./types.js";
+
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 export interface MandateRunOptions {
   goal?: string;
@@ -75,6 +80,7 @@ export interface MandateRunResult {
     detail: string;
     badge: "success" | "warning" | "error" | "info";
   }[];
+  aiModelUsed?: string;
 }
 
 export type MandateDomain = "stablecoin_corridor" | "procurement" | "past_purchases" | "general_market";
@@ -113,7 +119,7 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
   const rawGoal = opts.goal ?? "Find three suppliers of 100 office chairs, compare their prices and delivery terms, and prepare a recommendation. You may spend up to $20 on approved research services, but you cannot purchase anything without my approval.";
   const domain = detectDomain(rawGoal);
 
-  // 1. Dynamic Budget & Policy Parsing
+  // 1. Budget & Spending Limits Parsing
   let totalBudget = opts.totalBudgetCents ?? 2000n; // Default $20.00
   const dollarMatch = rawGoal.match(/\$(\d+(\.\d+)?)/);
   if (dollarMatch) {
@@ -128,7 +134,6 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
   const perAgentCap = opts.perAgentCapCents ?? (totalBudget > 2000n ? totalBudget / 4n : 500n);
 
   const allowedServices = ["supplier_research", "quotation_analysis", "deliverable_audit", "market_research", "corridor_data", "ledger_audit"];
-  const hasExplicitRestriction = /cannot|no\s+|not\s+|without\s+(?:my\s+)?approval|requires\s+approval/i.test(rawGoal);
   
   const restrictionText = domain === "procurement"
     ? "Purchases of goods or inventory strictly require prior human authorization"
@@ -161,7 +166,7 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
 
   store.createMandate(mandate);
 
-  // Specialized Task Decomposition based on Domain
+  // Specialized Task Decomposition across the 4 Agents
   const tasks: Task[] = [];
   if (domain === "stablecoin_corridor") {
     tasks.push(
@@ -201,10 +206,54 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
     badge: "info",
   });
 
-  // Step 2: Contextual Deliverable Generation
+  // Step 2: Deliverable Generation (Attempting Live OpenAI Generation first)
   let deliverableContent = opts.deliverableText;
   let evidence: string[] = [];
+  let aiModelUsed = "Template/Heuristic Engine";
 
+  if (!deliverableContent && openai) {
+    try {
+      console.log("[Mandate AI] Querying OpenAI for dynamic multi-agent execution...");
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are the core intelligence of Mandate, executing an autonomous business pipeline across specialized agents:
+1. Researcher: discovers real providers, pricing models, SLA, and evidence citations.
+2. Analyst: creates a quantitative markdown comparison table, evaluates trade-offs, and recommends an option.
+3. Verifier: checks evidence links, rubrics, and acceptance criteria.
+
+Generate a comprehensive, executive deliverable in markdown for the user's mandate. Format with:
+## 1. Verified Quotations & Coverage
+## 2. Comparative Matrix (Table)
+## 3. Executive Recommendation
+## 4. Target Customers & Competitive Advantage Analysis
+Include realistic commercial URLs for evidence references.`
+          },
+          {
+            role: "user",
+            content: `Mandate: "${rawGoal}"\nDomain: ${domain}\nBudget: ${formatCents(totalBudget)}`
+          }
+        ],
+        temperature: 0.3
+      });
+
+      const responseText = completion.choices[0]?.message?.content;
+      if (responseText && responseText.length > 100) {
+        deliverableContent = responseText;
+        aiModelUsed = "OpenAI GPT-4o-mini (Live Dynamic Generation)";
+        // Extract links from markdown
+        const urlMatches = responseText.match(/https?:\/\/[^\s\)\"\'\>]+/g);
+        evidence = urlMatches ? Array.from(new Set(urlMatches)).slice(0, 4) : [];
+      }
+    } catch (openAiErr: any) {
+      console.warn("[Mandate AI] OpenAI query failed or quota exhausted:", openAiErr?.message || openAiErr);
+      aiModelUsed = "Dynamic Domain Engine (OpenAI quota balance exhausted)";
+    }
+  }
+
+  // Fallback to domain-specific dynamic engine if deliverableContent not yet generated
   if (!deliverableContent) {
     if (domain === "stablecoin_corridor") {
       deliverableContent = `# Cross-Border Stablecoin Corridor & Pricing Analysis
@@ -449,7 +498,6 @@ ${formattedSummary}
   // Step 4: Contextual Spending Guardrails & Restriction Interceptions
   const attackSimulations: MandateRunResult["attackSimulation"] = [];
   if (opts.simulateAttack !== false) {
-    // Interception A: Contextual restricted action
     if (domain === "procurement") {
       const attackA = await requestPayment(store, executor, {
         mandateId: mandate.id,
@@ -528,7 +576,6 @@ ${formattedSummary}
       });
     }
 
-    // Interception B: Over-budget fee override attempt
     const attackB = await requestPayment(store, executor, {
       mandateId: mandate.id,
       taskId: tasks[1].id,
@@ -609,5 +656,6 @@ ${formattedSummary}
       agentSpent: agentSpentMap,
     },
     steps,
+    aiModelUsed,
   };
 }

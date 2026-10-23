@@ -1,12 +1,12 @@
-// --- Multi-User Account State ---
+// --- Multi-User & Wallet State ---
 let currentAccount = localStorage.getItem('mandate_current_account');
 if (!currentAccount) {
-  // Generate a distinct sandbox account ID for new users so accounts don't collide
   const rand = Math.random().toString(36).substring(2, 6);
   currentAccount = 'client-' + rand + '.testnet';
   localStorage.setItem('mandate_current_account', currentAccount);
 }
 
+let connectedWallet = localStorage.getItem('mandate_connected_wallet') || null;
 let activeConversationId = 'conv_' + Date.now();
 let conversationMessages = [];
 
@@ -25,6 +25,23 @@ const headerAccountName = document.getElementById('headerAccountName');
 const headerBalancePill = document.getElementById('headerBalancePill');
 const accountSelectorBtn = document.getElementById('accountSelectorBtn');
 const conversationsListContainer = document.getElementById('conversationsListContainer');
+
+// Wallet Elements
+const connectWalletBtn = document.getElementById('connectWalletBtn');
+const walletModal = document.getElementById('walletModal');
+const closeWalletModal = document.getElementById('closeWalletModal');
+const walletStatusDot = document.getElementById('walletStatusDot');
+const walletBtnText = document.getElementById('walletBtnText');
+const walletConnectedCard = document.getElementById('walletConnectedCard');
+const walletProviderOptions = document.getElementById('walletProviderOptions');
+const modalConnectedAccount = document.getElementById('modalConnectedAccount');
+const modalConnectedBalance = document.getElementById('modalConnectedBalance');
+const disconnectWalletBtn = document.getElementById('disconnectWalletBtn');
+const connectMyNearWalletBtn = document.getElementById('connectMyNearWalletBtn');
+const connectMeteorWalletBtn = document.getElementById('connectMeteorWalletBtn');
+const manualWalletInput = document.getElementById('manualWalletInput');
+const confirmManualWalletBtn = document.getElementById('confirmManualWalletBtn');
+const liveOnchainBalanceText = document.getElementById('liveOnchainBalanceText');
 
 // Account Modal Elements
 const accountModal = document.getElementById('accountModal');
@@ -78,7 +95,7 @@ sidebarCloseBtn.addEventListener('click', () => sidebar.classList.add('collapsed
 function showToast(msg) {
   toastNotify.textContent = msg;
   toastNotify.classList.add('show');
-  setTimeout(() => toastNotify.classList.remove('show'), 2200);
+  setTimeout(() => toastNotify.classList.remove('show'), 2800);
 }
 
 function updateTreasuryUI(balStr) {
@@ -88,6 +105,7 @@ function updateTreasuryUI(balStr) {
   if (modalTreasuryBal) modalTreasuryBal.textContent = formatted;
   if (headerBalancePill) headerBalancePill.textContent = formatted;
   if (modalActiveAccountBal) modalActiveAccountBal.textContent = formatted;
+  if (liveOnchainBalanceText) liveOnchainBalanceText.textContent = formatted;
 }
 
 function updateAccountBadgeUI() {
@@ -95,7 +113,39 @@ function updateAccountBadgeUI() {
   if (modalActiveAccountName) modalActiveAccountName.textContent = currentAccount;
 }
 
-// Fetch Treasury Balance for current account
+// Update Wallet UI state
+function updateWalletUI() {
+  if (connectedWallet) {
+    if (connectWalletBtn) {
+      connectWalletBtn.classList.add('connected');
+    }
+    if (walletStatusDot) walletStatusDot.classList.add('online');
+    if (walletBtnText) walletBtnText.textContent = connectedWallet.slice(0, 14) + (connectedWallet.length > 14 ? '...' : '');
+    if (walletConnectedCard) walletConnectedCard.style.display = 'block';
+    if (modalConnectedAccount) modalConnectedAccount.textContent = connectedWallet;
+    loadConnectedWalletBalance();
+  } else {
+    if (connectWalletBtn) {
+      connectWalletBtn.classList.remove('connected');
+    }
+    if (walletStatusDot) walletStatusDot.classList.remove('online');
+    if (walletBtnText) walletBtnText.textContent = 'Connect Wallet';
+    if (walletConnectedCard) walletConnectedCard.style.display = 'none';
+  }
+}
+
+async function loadConnectedWalletBalance() {
+  if (!connectedWallet) return;
+  try {
+    const res = await fetch('/api/treasury?account=' + encodeURIComponent(connectedWallet));
+    const data = await res.json();
+    if (data && modalConnectedBalance) {
+      modalConnectedBalance.textContent = data.formatted || 'Connected';
+    }
+  } catch {}
+}
+
+// Fetch Live On-Chain Treasury Balance
 async function loadTreasuryBalance() {
   try {
     const res = await fetch('/api/treasury', { headers: getApiHeaders() });
@@ -108,13 +158,42 @@ async function loadTreasuryBalance() {
   }
 }
 
+// Check if returning from MyNearWallet redirect
+function checkWalletCallback() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const txHashes = urlParams.get('transactionHashes');
+  const accountId = urlParams.get('account_id');
+
+  if (accountId) {
+    connectedWallet = accountId;
+    localStorage.setItem('mandate_connected_wallet', accountId);
+    updateWalletUI();
+  }
+
+  if (txHashes) {
+    showToast('On-chain deposit confirmed! Tx: ' + txHashes.slice(0, 10) + '...');
+    // Clean up URL
+    window.history.replaceState({}, document.title, window.location.pathname);
+    loadTreasuryBalance();
+    loadLedger();
+  }
+}
+
+// Direct Web3 Send via MyNearWallet
+window.sendOnchainNear = function(amount) {
+  const treasuryAccount = 'mandate-generis-treasury.testnet';
+  const redirectUrl = encodeURIComponent(window.location.origin + window.location.pathname);
+  const myNearUrl = 'https://testnet.mynearwallet.com/send-money?recipient=' + treasuryAccount + '&amount=' + amount + '&redirectUrl=' + redirectUrl;
+  window.open(myNearUrl, '_blank');
+};
+
 // Fund Treasury Actions
 window.fundDirectly = async function(amount) {
   try {
     const res = await fetch('/api/treasury', {
       method: 'POST',
       headers: getApiHeaders(),
-      body: JSON.stringify({ amountNear: amount, note: 'Quick deposit' })
+      body: JSON.stringify({ amountNear: amount, note: 'Treasury deposit from ' + (connectedWallet || currentAccount) })
     });
     const data = await res.json();
     if (data.success) {
@@ -143,7 +222,70 @@ confirmFundBtn.addEventListener('click', async () => {
 });
 
 // Modal Toggles
-openFundModalBtn.addEventListener('click', () => fundModal.classList.add('open'));
+if (connectWalletBtn) {
+  connectWalletBtn.addEventListener('click', () => {
+    walletModal.classList.add('open');
+    updateWalletUI();
+  });
+}
+if (closeWalletModal) {
+  closeWalletModal.addEventListener('click', () => walletModal.classList.remove('open'));
+}
+
+if (disconnectWalletBtn) {
+  disconnectWalletBtn.addEventListener('click', () => {
+    connectedWallet = null;
+    localStorage.removeItem('mandate_connected_wallet');
+    updateWalletUI();
+    showToast('Wallet disconnected');
+  });
+}
+
+if (connectMyNearWalletBtn) {
+  connectMyNearWalletBtn.addEventListener('click', () => {
+    const redirectUrl = encodeURIComponent(window.location.href);
+    window.location.href = 'https://testnet.mynearwallet.com/?redirectUrl=' + redirectUrl;
+  });
+}
+
+if (connectMeteorWalletBtn) {
+  connectMeteorWalletBtn.addEventListener('click', async () => {
+    if (window.near && window.near.isMeteor) {
+      try {
+        const res = await window.near.requestSignIn();
+        if (res && res.accountId) {
+          connectedWallet = res.accountId;
+          localStorage.setItem('mandate_connected_wallet', connectedWallet);
+          updateWalletUI();
+          walletModal.classList.remove('open');
+          showToast('Connected Meteor Wallet: ' + connectedWallet);
+        }
+      } catch (err) {
+        alert('Meteor connect error: ' + err.message);
+      }
+    } else {
+      alert('Meteor or injected wallet extension not detected in this browser. Please use MyNearWallet or link testnet account.');
+    }
+  });
+}
+
+if (confirmManualWalletBtn) {
+  confirmManualWalletBtn.addEventListener('click', () => {
+    const acc = (manualWalletInput.value || '').trim().toLowerCase();
+    if (!acc) return;
+    connectedWallet = acc.endsWith('.testnet') ? acc : acc + '.testnet';
+    localStorage.setItem('mandate_connected_wallet', connectedWallet);
+    manualWalletInput.value = '';
+    updateWalletUI();
+    walletModal.classList.remove('open');
+    showToast('Linked wallet: ' + connectedWallet);
+  });
+}
+
+openFundModalBtn.addEventListener('click', () => {
+  fundModal.classList.add('open');
+  loadTreasuryBalance();
+});
 closeFundModal.addEventListener('click', () => fundModal.classList.remove('open'));
 
 function openAllowlist() {
@@ -759,8 +901,13 @@ function renderAssistantResponse(id, data, record = true) {
     el.innerHTML = `
       ${gemAvatar}
       <div class="message-content" style="max-width:100%;">
-        <div style="font-size:15px; font-weight:600; color:#fff; margin-bottom:8px;">
-          Autonomous Mandate Executed · Spending Guardrails Enforced
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:15px; font-weight:600; color:#fff;">
+            Autonomous Mandate Executed · Spending Guardrails Enforced
+          </div>
+          <span style="font-size:11px; color:#10a37f; background:rgba(16,163,127,0.12); padding:2px 8px; border-radius:6px; font-weight:600;">
+            ${res.aiModelUsed ? escapeHtml(res.aiModelUsed) : 'OpenAI Agent Pipeline'}
+          </span>
         </div>
 
         <!-- 1. Mandate Policy Card -->
@@ -888,5 +1035,7 @@ function renderMarkdownRich(md) {
 
 // Initial Boot
 updateAccountBadgeUI();
+updateWalletUI();
+checkWalletCallback();
 loadTreasuryBalance();
 loadConversationsList();

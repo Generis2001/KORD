@@ -103,35 +103,52 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 2. /api/treasury (GET balance, POST fund)
+  // 2. /api/treasury (GET live on-chain balance, POST fund)
   if (url.pathname === '/api/treasury') {
     if (req.method === 'GET') {
-      const balance = store.getUserBalance(userAccount);
+      let liveOnchain = 0;
+      try {
+        const liveStr = await nearExecutor.balanceNear();
+        liveOnchain = parseFloat(liveStr);
+      } catch {}
+
+      const userBal = store.getUserBalance(userAccount);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
-        accountId: userAccount,
-        balanceNear: balance.toFixed(2),
-        formatted: balance.toFixed(2) + ' NEAR'
+        accountId: nearCfg.accountId,
+        liveOnchainNear: liveOnchain.toFixed(2),
+        balanceNear: liveOnchain.toFixed(2),
+        formatted: liveOnchain.toFixed(2) + ' NEAR',
+        userAccount,
+        userQuotaNear: userBal.toFixed(2)
       }));
     }
 
     if (req.method === 'POST') {
       let body = '';
       req.on('data', c => { body += c; });
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
-          const { amountNear, note } = JSON.parse(body || '{}');
+          const { amountNear, note, txHash } = JSON.parse(body || '{}');
           const amt = parseFloat(amountNear);
           if (isNaN(amt) || amt <= 0) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'Valid amountNear required' }));
           }
-          const after = store.fundUserBalance(userAccount, amt, note || 'Treasury deposit');
+          store.fundUserBalance(userAccount, amt, note || 'Treasury deposit');
+
+          let liveOnchain = 0;
+          try {
+            const liveStr = await nearExecutor.balanceNear();
+            liveOnchain = parseFloat(liveStr);
+          } catch {}
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             success: true,
-            newBalance: after.toFixed(2),
-            formatted: after.toFixed(2) + ' NEAR'
+            newBalance: liveOnchain.toFixed(2),
+            formatted: liveOnchain.toFixed(2) + ' NEAR',
+            txHash: txHash || null
           }));
         } catch (e: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });

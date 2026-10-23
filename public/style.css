@@ -1055,3 +1055,80 @@ textarea#promptInput::placeholder {
   border-color: #10a37f;
   background: rgba(16, 163, 127, 0.08);
 }
+
+
+/* --- Wallet Connector Styles --- */
+.wallet-badge-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wallet-badge-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.wallet-badge-btn.connected {
+  border-color: rgba(16, 163, 127, 0.4);
+  background: rgba(16, 163, 127, 0.08);
+}
+
+.wallet-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #64748b;
+  transition: background 0.2s;
+}
+
+.wallet-dot.online {
+  background: #10a37f;
+  box-shadow: 0 0 8px #10a37f;
+}
+
+.wallet-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wallet-option-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.wallet-option-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.btn-mini-connect {
+  font-size: 12px;
+  font-weight: 600;
+  color: #10a37f;
+  background: rgba(16, 163, 127, 0.15);
+  padding: 4px 10px;
+  border-radius: 6px;
+}

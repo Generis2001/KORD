@@ -99,7 +99,12 @@
           </div>
         </div>
 
-        <div class="right-nav" style="display:flex; align-items:center; gap:10px;">
+        <div class="right-nav" style="display:flex; align-items:center; gap:8px;">
+          <!-- Live On-Chain Wallet Connect Badge -->
+          <button class="wallet-badge-btn" id="connectWalletBtn" title="Connect NEAR Testnet Wallet">
+            <span class="wallet-dot" id="walletStatusDot"></span>
+            <span id="walletBtnText">Connect Wallet</span>
+          </button>
           <!-- Account Switcher Badge -->
           <div class="user-account-badge" id="accountSelectorBtn" title="Switch or Create Mandate Account">
             <div class="user-avatar-tiny" id="headerAvatar">M</div>
@@ -233,20 +238,26 @@
       </div>
 
       <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:12px;">
-        <p style="font-size:13.5px; color:#b4b4b4; line-height:1.5;">
-          Add funds to your autonomous treasury account on NEAR testnet:
-          <br><code style="font-family:var(--font-mono); color:#10a37f;">mandate-generis-treasury.testnet</code>
-        </p>
-
-        <div style="display:flex; gap:8px;">
-          <button class="btn-subtle" onclick="fundDirectly(5)">+ 5 NEAR</button>
-          <button class="btn-subtle" onclick="fundDirectly(10)">+ 10 NEAR</button>
-          <button class="btn-subtle" onclick="fundDirectly(25)">+ 25 NEAR</button>
+        <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); border-radius:8px; padding:10px 12px; font-size:12.5px; color:#cbd5e1; line-height:1.5;">
+          Treasury Account: <a href="https://testnet.nearblocks.io/address/mandate-generis-treasury.testnet" target="_blank" rel="noopener noreferrer" style="font-family:var(--font-mono); color:#10a37f; text-decoration:underline;">mandate-generis-treasury.testnet</a>
+          <br>Live On-Chain Balance: <strong id="liveOnchainBalanceText" style="color:#fff;">8.16 NEAR</strong>
         </div>
 
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <input type="number" id="customFundInput" placeholder="Amount in NEAR (e.g. 10)" class="form-control" step="1" min="1">
-          <button class="btn-primary" id="confirmFundBtn">Deposit Funds</button>
+        <div>
+          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Option A: On-Chain Transfer via MyNearWallet</label>
+          <div style="display:flex; gap:8px;">
+            <button class="btn-subtle" onclick="sendOnchainNear(5)">Send 5 NEAR ↗</button>
+            <button class="btn-subtle" onclick="sendOnchainNear(10)">Send 10 NEAR ↗</button>
+            <button class="btn-subtle" onclick="sendOnchainNear(25)">Send 25 NEAR ↗</button>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border-subtle); padding-top:10px;">
+          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Option B: Custom Deposit / Record Tx</label>
+          <div style="display:flex; gap:8px;">
+            <input type="number" id="customFundInput" placeholder="Amount in NEAR" class="form-control" step="1" min="1">
+            <button class="btn-primary" id="confirmFundBtn">Deposit Funds</button>
+          </div>
         </div>
       </div>
 
@@ -343,6 +354,83 @@
       <div class="modal-footer">
         <span class="network-badge">NEAR Testnet Sandboxed Accounts</span>
         <button class="btn-subtle" onclick="document.getElementById('accountModal').classList.remove('open')">Done</button>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- MODAL: Connect NEAR Wallet (MyNearWallet / Meteor / Here Wallet) -->
+  <div class="modal-backdrop" id="walletModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+          <h2>Connect NEAR Wallet</h2>
+        </div>
+        <button class="modal-close" id="closeWalletModal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:14px;">
+        <p style="font-size:13px; color:#94a3b8; line-height:1.5;">
+          Connect your NEAR testnet wallet to sign real transactions and fund the treasury directly on-chain.
+        </p>
+
+        <!-- Connected State Card -->
+        <div id="walletConnectedCard" style="display:none; background:rgba(16,163,127,0.08); border:1px solid rgba(16,163,127,0.3); border-radius:10px; padding:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:11px; text-transform:uppercase; color:#10a37f; font-weight:700;">Wallet Connected</div>
+              <div style="font-size:14px; font-weight:600; color:#fff; font-family:var(--font-mono);" id="modalConnectedAccount">epochals-sphere.testnet</div>
+            </div>
+            <button class="btn-subtle" id="disconnectWalletBtn" style="color:#ef4444; border-color:rgba(239,68,68,0.3);">Disconnect</button>
+          </div>
+          <div style="margin-top:8px; font-size:12.5px; color:#cbd5e1;">
+            Live Balance: <strong style="color:#10a37f;" id="modalConnectedBalance">Loading...</strong>
+          </div>
+        </div>
+
+        <!-- Wallet Provider Options -->
+        <div id="walletProviderOptions" style="display:flex; flex-direction:column; gap:10px;">
+          <!-- MyNearWallet -->
+          <div class="wallet-option-item" id="connectMyNearWalletBtn">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="wallet-option-icon" style="background:#000; color:#00ec97;">N</div>
+              <div>
+                <div style="font-size:13.5px; font-weight:600; color:#fff;">MyNearWallet (Testnet)</div>
+                <div style="font-size:11.5px; color:#8e8e8e;">Official web wallet for NEAR testnet</div>
+              </div>
+            </div>
+            <span class="btn-mini-connect">Connect ↗</span>
+          </div>
+
+          <!-- Meteor / Injected Wallet -->
+          <div class="wallet-option-item" id="connectMeteorWalletBtn">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="wallet-option-icon" style="background:#5f259f; color:#fff;">☄</div>
+              <div>
+                <div style="font-size:13.5px; font-weight:600; color:#fff;">Meteor / Here Wallet</div>
+                <div style="font-size:11.5px; color:#8e8e8e;">Browser extension or mobile wallet</div>
+              </div>
+            </div>
+            <span class="btn-mini-connect">Connect</span>
+          </div>
+
+          <!-- Direct Testnet Account Link -->
+          <div style="border-top:1px solid var(--border-subtle); padding-top:12px; margin-top:4px;">
+            <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Or Link Testnet Account</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="manualWalletInput" placeholder="e.g. epochals-sphere.testnet" class="form-control" style="font-family:var(--font-mono); font-size:13px;">
+              <button class="btn-primary" id="confirmManualWalletBtn" style="white-space:nowrap;">Link</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span class="network-badge">NEAR Testnet · Real On-Chain Settlements</span>
+        <button class="btn-subtle" onclick="document.getElementById('walletModal').classList.remove('open')">Close</button>
       </div>
     </div>
   </div>
