@@ -27,6 +27,22 @@ function getMimeType(filePath: string): string {
   }
 }
 
+function formatNearErrorMessage(msg: string): string {
+  if (!msg) return 'Transaction failed on NEAR testnet.';
+  // Converts 18-30 digit yoctoNEAR integers into clean, readable NEAR numbers (e.g. 157809675022697300000000 -> 0.16 NEAR)
+  return msg.replace(/\b(\d{18,30})\b/g, (match) => {
+    try {
+      const yocto = BigInt(match);
+      const nearWhole = yocto / (10n ** 24n);
+      const remainder = yocto % (10n ** 24n);
+      const decimalStr = (remainder / (10n ** 20n)).toString().padStart(4, '0');
+      return `${nearWhole}.${decimalStr.slice(0, 2)} NEAR`;
+    } catch {
+      return match;
+    }
+  });
+}
+
 export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost:3000'}`);
 
@@ -359,7 +375,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
               recipient,
               amountNear,
               error: netErr.message,
-              message: '❌ **NEAR Testnet Execution Error:** ' + netErr.message + '\n\nPlease verify network connectivity or recipient account validity.'
+              message: '❌ **NEAR Testnet Execution Error:** ' + formatNearErrorMessage(netErr.message) + '\n\nPlease verify network connectivity or recipient account validity.'
             }));
           }
 
@@ -402,7 +418,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             recipient,
             amountNear,
             error: err.message,
-            message: '❌ Payment of ' + amountNear + ' NEAR to `' + recipient + '` failed: ' + err.message
+            message: '❌ Payment of ' + amountNear + ' NEAR to `' + recipient + '` failed: ' + formatNearErrorMessage(err.message)
           }));
         }
       }
