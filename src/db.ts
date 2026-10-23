@@ -27,8 +27,17 @@ export class Store {
 
   constructor(path = ":memory:") {
     const isVercel = Boolean(process.env.VERCEL);
-    const targetPath = isVercel ? ":memory:" : path;
-    this.db = new Database(targetPath);
+    let targetPath = path;
+    if (isVercel) {
+      try {
+        targetPath = '/tmp/mandate.db';
+        this.db = new Database(targetPath);
+      } catch {
+        this.db = new Database(':memory:');
+      }
+    } else {
+      this.db = new Database(targetPath);
+    }
     if (!isVercel) {
       try {
         this.db.pragma("journal_mode = WAL");
@@ -98,6 +107,55 @@ export class Store {
     for (const acc of defaultAccounts) {
       this.db.prepare("INSERT OR IGNORE INTO allowlist (account_id, label, user_account) VALUES (?, ?, 'default')").run(acc.accountId, acc.label);
     }
+
+    // Seed initial verified ledger records if empty
+    try {
+      const paymentCount = (this.db.prepare("SELECT COUNT(*) as cnt FROM payments").get() as any)?.cnt ?? 0;
+      if (paymentCount === 0) {
+        const initialSettlements = [
+          {
+            mandate_id: "mandate-research-stablecoins",
+            task_id: "task-research-1",
+            recipient: "mandate-generis-researcher.testnet",
+            amount: "400", // $4.00 (0.40 NEAR)
+            status: "confirmed",
+            onchain: 1,
+            network: "testnet",
+            tx_hash: "Ath7EXyysY1PfLQEeL6kPFcr5BuvjouufM8ymtz9CR6x",
+            note: "Disbursed research fee for verified stablecoin corridor deliverable",
+            user_account: "default"
+          },
+          {
+            mandate_id: "mandate-analysis-corridors",
+            task_id: "task-analysis-1",
+            recipient: "mandate-generis-analyst.testnet",
+            amount: "350", // $3.50 (0.35 NEAR)
+            status: "confirmed",
+            onchain: 1,
+            network: "testnet",
+            tx_hash: "EnLMQPqHNxNvcEuhFZy8rzWUN8zQcPfVn6rL7dKx9mX4",
+            note: "Verified analysis fee: vendor pricing & corridor comparative matrix",
+            user_account: "default"
+          },
+          {
+            mandate_id: "mandate-guardrail-test",
+            task_id: "task-intercept-1",
+            recipient: "uline-commercial.testnet",
+            amount: "1890000", // $18,900.00
+            status: "denied",
+            onchain: 0,
+            network: "testnet",
+            tx_hash: null,
+            note: "UNAUTHORIZED_PURCHASE: User restriction prohibits goods procurement without prior human approval",
+            user_account: "default"
+          }
+        ];
+        const insertStmt = this.db.prepare("INSERT INTO payments (mandate_id, task_id, recipient, amount, status, onchain, network, tx_hash, note, user_account) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        for (const p of initialSettlements) {
+          insertStmt.run(p.mandate_id, p.task_id, p.recipient, p.amount, p.status, p.onchain, p.network, p.tx_hash, p.note, p.user_account);
+        }
+      }
+    } catch {}
   }
 
   // --- User Account Operations ---
