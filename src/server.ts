@@ -10,7 +10,7 @@ import { runAutonomousMandate } from './runner.js';
 const PORT = 3000;
 const rootDir = path.resolve('.');
 const publicDir = path.join(rootDir, 'public');
-const dbPath = path.join(rootDir, 'mandate.db');
+const dbPath = process.env.MANDATE_DB ?? (process.env.VERCEL ? path.join('/tmp', 'mandate.db') : path.join(rootDir, 'mandate.db'));
 
 const store = new Store(dbPath);
 const nearCfg = loadNearConfig();
@@ -40,7 +40,7 @@ async function getLiveOrLedgerBalance(): Promise<number> {
   return store.getTreasuryBalance();
 }
 
-const server = http.createServer(async (req, res) => {
+export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -418,8 +418,13 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   }
-});
+}
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Mandate] Running at http://localhost:${PORT}`);
-});
+export default handleRequest;
+
+if (!process.env.VERCEL) {
+  const server = http.createServer(handleRequest);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Mandate] Running at http://localhost:${PORT}`);
+  });
+}

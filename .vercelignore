@@ -1,0 +1,14 @@
+.env
+.env.local
+.env.*
+node_modules
+target
+contract
+.secrets
+.xwin-cache
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+test
+.git

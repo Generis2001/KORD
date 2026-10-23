@@ -12,3 +12,5 @@ dist/
 
 *.db-wal
 *.db-shm
+.vercel
+.env*

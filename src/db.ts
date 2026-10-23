@@ -26,8 +26,14 @@ export class Store {
   readonly db: Database.Database;
 
   constructor(path = ":memory:") {
-    this.db = new Database(path);
-    this.db.pragma("journal_mode = WAL");
+    const isVercel = Boolean(process.env.VERCEL);
+    const targetPath = isVercel ? ":memory:" : path;
+    this.db = new Database(targetPath);
+    if (!isVercel) {
+      try {
+        this.db.pragma("journal_mode = WAL");
+      } catch {}
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS mandates (
         id TEXT PRIMARY KEY, goal TEXT NOT NULL, total_budget TEXT NOT NULL,
