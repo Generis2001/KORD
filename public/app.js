@@ -1,8 +1,7 @@
 // --- Multi-User & Wallet State ---
 let currentAccount = localStorage.getItem('mandate_current_account');
-if (!currentAccount) {
-  const rand = Math.random().toString(36).substring(2, 6);
-  currentAccount = 'client-' + rand + '.testnet';
+if (!currentAccount || currentAccount.startsWith('client-') || currentAccount === 'default-user.testnet') {
+  currentAccount = 'generis.testnet';
   localStorage.setItem('mandate_current_account', currentAccount);
 }
 
@@ -319,13 +318,19 @@ async function loadAccountsList() {
     if (data && data.users) {
       accountsListContainer.innerHTML = data.users.map(u => {
         const isActive = u.accountId.toLowerCase() === currentAccount.toLowerCase();
+        const deleteBtn = !isActive
+          ? `<button class="btn-subtle" onclick="deleteAccount(event, '${escapeHtml(u.accountId)}')" style="color:#ef4444; padding:2px 8px; font-size:11px; margin-left:8px;" title="Remove Account">✕</button>`
+          : '';
         return `
           <div class="account-card-item ${isActive ? 'active' : ''}" onclick="switchAccount('${escapeHtml(u.accountId)}')">
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-size:14px;">${isActive ? '🟢' : '⚪'}</span>
               <span style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:${isActive ? '#10a37f' : '#fff'};">${escapeHtml(u.accountId)}</span>
             </div>
-            <span style="font-size:12px; color:#94a3b8; font-weight:500;">${Number(u.balanceNear).toFixed(2)} NEAR</span>
+            <div style="display:flex; align-items:center;">
+              <span style="font-size:12px; color:#94a3b8; font-weight:500;">${Number(u.balanceNear).toFixed(2)} NEAR</span>
+              ${deleteBtn}
+            </div>
           </div>
         `;
       }).join('');
@@ -334,6 +339,26 @@ async function loadAccountsList() {
     accountsListContainer.innerHTML = '<div style="font-size:12px; color:#ef4444;">Failed to load accounts.</div>';
   }
 }
+
+window.deleteAccount = async function(e, accId) {
+  e.stopPropagation();
+  if (accId.toLowerCase() === currentAccount.toLowerCase()) {
+    alert('Cannot delete the currently active account. Switch to another account first.');
+    return;
+  }
+  if (!confirm('Remove account ' + accId + '?')) return;
+  try {
+    await fetch('/api/accounts', {
+      method: 'DELETE',
+      headers: getApiHeaders(),
+      body: JSON.stringify({ accountId: accId })
+    });
+    showToast('Removed ' + accId);
+    loadAccountsList();
+  } catch (err) {
+    alert('Failed to remove: ' + err.message);
+  }
+};
 
 window.switchAccount = function(newAccId) {
   if (!newAccId || newAccId === currentAccount) {

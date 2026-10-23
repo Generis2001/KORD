@@ -225,8 +225,19 @@ export class Store {
   }
 
   listUsers(): { accountId: string; balanceNear: number }[] {
-    const rows = this.db.prepare("SELECT account_id, balance_near FROM user_accounts ORDER BY created_at DESC").all() as any[];
+    // Exclude auto-generated client- and default-user accounts
+    const rows = this.db.prepare("SELECT account_id, balance_near FROM user_accounts WHERE account_id NOT LIKE 'client-%' AND account_id != 'default-user.testnet' ORDER BY created_at DESC").all() as any[];
+    if (rows.length === 0) {
+      this.getOrCreateUser('generis.testnet', 10.00);
+      return [{ accountId: 'generis.testnet', balanceNear: 10.00 }];
+    }
     return rows.map(r => ({ accountId: r.account_id, balanceNear: Number(r.balance_near) }));
+  }
+
+  deleteUser(userAccount: string): boolean {
+    const acc = userAccount.trim().toLowerCase();
+    const res = this.db.prepare("DELETE FROM user_accounts WHERE account_id=?").run(acc);
+    return res.changes > 0;
   }
 
   setUserBalance(userAccount: string, balance: number): void {
@@ -305,11 +316,11 @@ export class Store {
       const sql = userAccount && userAccount !== 'default'
         ? "SELECT * FROM payments WHERE user_account=? OR user_account='default' ORDER BY id DESC LIMIT 50"
         : "SELECT * FROM payments ORDER BY id DESC LIMIT 50";
-      const rows = userAccount && userAccount !== 'default'
+      const paymentRows = userAccount && userAccount !== 'default'
         ? this.db.prepare(sql).all(userAccount) as any[]
         : this.db.prepare(sql).all() as any[];
 
-      return rows.map((r) => ({
+      const pList = paymentRows.map((r) => ({
         id: r.id,
         mandateId: r.mandate_id,
         taskId: r.task_id,
@@ -323,6 +334,35 @@ export class Store {
         createdAt: r.created_at,
         explorerUrl: r.tx_hash ? `https://testnet.nearblocks.io/txns/${r.tx_hash}` : null
       }));
+
+      // Merge Agent Swaps into Settlement Ledger
+      let sList: any[] = [];
+      try {
+        const swapRows = userAccount && userAccount !== 'default'
+          ? this.db.prepare("SELECT * FROM agent_swaps WHERE user_account=? ORDER BY created_at DESC LIMIT 30").all(userAccount) as any[]
+          : this.db.prepare("SELECT * FROM agent_swaps ORDER BY created_at DESC LIMIT 30").all() as any[];
+
+        sList = swapRows.map((s) => ({
+          id: s.id,
+          mandateId: 'agent-swap',
+          taskId: 'token-exchange',
+          recipient: s.destination_wallet,
+          amountDollars: Number(s.output_amount).toFixed(2) + ' USDT',
+          amountNear: Number(s.input_near).toFixed(2),
+          status: s.status === 'payout_confirmed' ? 'confirmed' : s.status,
+          onchain: Boolean(s.payout_tx_hash),
+          txHash: s.payout_tx_hash || s.funding_tx_hash || null,
+          note: s.note || `Agent Swap: ${s.input_near} NEAR -> ${s.output_amount} Test USDT`,
+          createdAt: s.created_at,
+          explorerUrl: s.payout_tx_hash ? `https://testnet.nearblocks.io/txns/${s.payout_tx_hash}` : null
+        }));
+      } catch {}
+
+      const combined = [...pList, ...sList].sort((a, b) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      return combined.slice(0, 50);
     } catch {
       return [];
     }
@@ -331,8 +371,13 @@ export class Store {
   // --- Conversations / Chat History ---
   getConversations(userAccount: string): any[] {
     try {
-      const rows = this.db.prepare("SELECT id, title, updated_at FROM conversations WHERE user_account=? ORDER BY updated_at DESC LIMIT 30").all(userAccount) as any[];
-      return rows;
+      const rows = this.db.prepare("SELECT id, title, messages_json, updated_at FROM conversations WHERE user_account=? ORDER BY updated_at DESC LIMIT 30").all(userAccount) as any[];
+      return rows.map(r => ({
+        id: r.id,
+        title: r.title,
+        updatedAt: r.updated_at,
+        messages: JSON.parse(r.messages_json || '[]')
+      }));
     } catch {
       return [];
     }

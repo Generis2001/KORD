@@ -1019,10 +1019,14 @@ textarea#promptInput::placeholder {
   border: none;
   color: #64748b;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 4px;
   border-radius: 4px;
-  display: none;
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
 }
+.history-delete-btn:hover { opacity: 1; color: #ef4444; background: rgba(239, 68, 68, 0.15); }
 
 .history-item:hover .history-delete-btn {
   display: block;

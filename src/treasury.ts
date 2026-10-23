@@ -27,6 +27,7 @@ export async function requestPayment(store: Store, executor: PaymentExecutor, re
 
     if (!decision.allowed) {
       const id = store.recordPayment({
+        userAccount: (req as any).userAccount || "default",
         mandateId: req.mandateId, taskId: req.taskId, recipient: req.recipient, amount: req.amount,
         status: "denied", onchain: false, network: null, txHash: null,
         note: decision.reasons.map((r) => `${r.code}: ${r.message}`).join(" | "),

@@ -121,10 +121,11 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       return res.end(JSON.stringify({
         accountId: nearCfg.accountId,
         liveOnchainNear: liveOnchain.toFixed(2),
-        balanceNear: liveOnchain.toFixed(2),
-        formatted: liveOnchain.toFixed(2) + ' NEAR',
+        formattedOnchain: liveOnchain.toFixed(2) + ' NEAR',
         userAccount,
-        userQuotaNear: userBal.toFixed(2)
+        userQuotaNear: userBal.toFixed(2),
+        balanceNear: userBal.toFixed(2),
+        formatted: userBal.toFixed(2) + ' NEAR'
       }));
     }
 
@@ -139,7 +140,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             res.writeHead(400, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'Valid amountNear required' }));
           }
-          store.fundUserBalance(userAccount, amt, note || 'Treasury deposit');
+          const after = store.fundUserBalance(userAccount, amt, note || 'Treasury deposit');
 
           let liveOnchain = 0;
           try {
@@ -150,8 +151,13 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             success: true,
-            newBalance: liveOnchain.toFixed(2),
-            formatted: liveOnchain.toFixed(2) + ' NEAR',
+            userAccount,
+            userBalance: after.toFixed(2),
+            newBalance: after.toFixed(2),
+            balanceNear: after.toFixed(2),
+            formatted: after.toFixed(2) + ' NEAR',
+            liveOnchainNear: liveOnchain.toFixed(2),
+            formattedOnchain: liveOnchain.toFixed(2) + ' NEAR',
             txHash: txHash || null
           }));
         } catch (e: any) {
