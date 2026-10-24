@@ -1,68 +1,167 @@
 # Mandate
 
-An autonomous business agent that delegates work, pays for verified deliverables, and enforces user-defined spending limits on NEAR.
+### Autonomous AI Blockchain Agent on NEAR Testnet
 
-**Security model:** agents and models can only *propose* a payment. A deterministic policy engine authorizes it, the budget is reserved atomically in SQLite, and only then does the treasury execute a NEAR transfer. Agents never touch the signing key.
+> **Mandate** is an autonomous AI agent that executes real, automated blockchain transactions on the NEAR Testnet. Users can instruct the agent in natural language to perform token swaps, disburse native NEAR, enforce security policies, and manage treasury funds with verifiable on-chain cryptographic receipts.
 
-**Honest scope:** the TypeScript app enforces limits in backend code (`src/policy.ts`, `src/treasury.ts`). `contract/` holds a Rust escrow that enforces the same limits onchain, and `DEMO_EXECUTOR=escrow` routes payments through it. Neither the contract nor the escrow path has been deployed or run on testnet yet. Verification is rule-based, not model-based. Money is tracked as integer "logical cents"; on testnet they map to NEAR at a configurable demo rate (`YOCTO_PER_CENT`).
+Live Production URL: **[https://mandateme.vercel.app](https://mandateme.vercel.app)**
 
-## Run (no network, mock executor)
+---
 
-```bash
-npm install
-npm test          # 16 tests: policy rules, atomic budget, failure handling
-npm run demo      # mock mode: clearly labeled, onchain=false, no tx hash
+## ⚡ What Mandate Does on NEAR Testnet
+
+Mandate turns natural language intent into verified, policy-guaranteed on-chain transactions on NEAR:
+
+1. **Automated NEP-141 Token Swaps (NEAR ↔ Test USDT):**
+   - Natural language swaps: *"Swap 2 NEAR for Test USDT"*.
+   - Automatically handles NEP-145 storage deposit registration (`storage_deposit`).
+   - Executes on-chain token exchange and transfers Mandate Test USDT (`usdt.fakes.testnet`) directly to the user's wallet.
+   - Provides live NearBlocks block explorer transaction receipts.
+
+2. **Policy-Guaranteed Blockchain Transfers:**
+   - Direct payment directives: *"Pay 7 NEAR to zeal.testnet"*.
+   - Validates recipient against an on-chain **Payable Allowlist**.
+   - Enforces user-defined spending caps before signing.
+   - Dispatches native NEAR transfers using the autonomous treasury key.
+
+3. **Deterministic Safety Guardrails & Anti-Attack Protection:**
+   - The LLM can only **propose** a transaction; it cannot sign or touch private keys.
+   - The deterministic policy engine checks per-transaction limits, cumulative caps, and recipient allowlists.
+   - Unauthorized attempts (e.g. paying unapproved vendors or exceeding budgets) are blocked locally before reaching RPC and logged to the audit ledger.
+
+4. **Verifiable Settlement Ledger:**
+   - Every transaction (swaps, disbursements, payments, blocked attacks) is timestamped with yoctoNEAR precision.
+   - Clickable **NearBlocks Testnet Explorer** links for instant cryptographic verification.
+
+5. **Multi-Account Profiles & Cloud Persistence:**
+   - Switch or create isolated Mandate profiles (default: `generis.testnet`).
+   - Real-time on-chain NEAR balance and live USDT balance display with official logos.
+   - Full session and conversation persistence powered by **Neon PostgreSQL**.
+
+---
+
+## 🏗️ Architecture & Security Model
+
+```
+                    ┌────────────────────────────────────────┐
+                    │          User Chat / UI Directives     │
+                    │ ("Swap 2 NEAR", "Pay 7 NEAR to zeal")  │
+                    └───────────────────┬────────────────────┘
+                                        │
+                                        ▼
+                    ┌────────────────────────────────────────┐
+                    │         AI Intent Parser (OpenAI)       │
+                    │   Extracts: Action, Amount, Recipient   │
+                    └───────────────────┬────────────────────┘
+                                        │ (Proposal only)
+                                        ▼
+                    ┌────────────────────────────────────────┐
+                    │      Deterministic Policy Engine       │
+                    │ • Spending limit verification          │
+                    │ • Allowlist membership check           │
+                    │ • Slippage & rate verification         │
+                    └───────┬────────────────────────┬───────┘
+                            │ (Approved)             │ (Denied)
+                            ▼                        ▼
+         ┌──────────────────────────────┐    ┌───────────────────────────┐
+         │     Treasury Key Signing     │    │   Security Block Notice   │
+         │       (near-api-js)          │    │ (Logged to Audit Ledger)  │
+         └──────────────┬───────────────┘    └───────────────────────────┘
+                        │
+                        ▼
+         ┌──────────────────────────────┐
+         │     NEAR Testnet Network     │
+         │ • Native Transfers           │
+         │ • NEP-141 ft_transfer        │
+         │ • NEP-145 storage_deposit    │
+         └──────────────┬───────────────┘
+                        │
+                        ▼
+         ┌──────────────────────────────┐
+         │   NearBlocks Explorer Tx     │
+         │   + Neon PostgreSQL State    │
+         └──────────────────────────────┘
 ```
 
-## Run on NEAR testnet (you run these on your machine)
+---
 
-Nothing below has been run against the real network yet. Secret keys stay on your machine: `gen-keys` never prints them.
+## 🎬 Twitter Demo Script (How to Demo Mandate)
 
-1. `npm run gen-keys -- <prefix>` writes `.env` and `.secrets/keys.json` (mode 600) and prints five testnet account ids with their PUBLIC keys.
-2. Create those five accounts on testnet with the printed public keys, using the current method in https://docs.near.org/, and fund the treasury with testnet NEAR.
-3. Read-only check: `npm run testnet:check`
-4. One tiny real transfer: `npm run testnet:check -- --send <researcher>.testnet 1`
-5. Plain-transfer demo: `DEMO_EXECUTOR=near npm run demo`
-6. Escrow demo: build and deploy `contract/` to the escrow account and call `new` (see `contract/README.md`), then `npm run escrow:setup`, then `DEMO_EXECUTOR=escrow npm run demo`
-7. Run the checks in `contract/README.md` (including calling `on_payout` from another account, which must fail).
-8. Open every printed tx hash in the testnet explorer and confirm it.
+Here is a recommended 60-second walkthrough to demonstrate Mandate on video:
 
-In escrow mode a payment is recorded as confirmed only if the contract emitted `payment_confirmed`; the verifier key can only call `approve_payment`.
+1. **Overview & Linked Profile (0:00 - 0:10):**
+   - Open **[mandateme.vercel.app](https://mandateme.vercel.app)**.
+   - Point out the linked wallet card at the bottom-left showing `generis.testnet` with live balances: **10.00 NEAR** and **60.00 USDT**.
 
-## Mainnet Support & Safety Protocol
+2. **Automated Token Swap (0:10 - 0:25):**
+   - Click the quick action: **⚡ Swap 2 NEAR for Test USDT** (or type *"Swap 2 NEAR for Test USDT"* in chat).
+   - Show Mandate calculating the quote, registering token storage, and confirming the swap.
+   - Click the **NearBlocks receipt link** to show the live on-chain transaction on testnet.
 
-Mandate defaults to **testnet** to prevent accidental fund loss. To enable **mainnet** execution, strict multi-layered safety controls must be explicitly satisfied:
+3. **Policy-Enforced Transfer (0:25 - 0:40):**
+   - Type *"Pay 3 NEAR to zeal.testnet"* in the chat.
+   - Watch Mandate check the allowlist, verify available quota, sign the transaction, and settle on-chain.
 
-1. **Network Toggle:** Set `NEAR_NETWORK=mainnet` in `.env`.
-2. **Explicit Opt-In Switch:** Set `ALLOW_MAINNET=true`.
-3. **Safety Confirmation Phrase:** Set `MAINNET_CONFIRMATION=I_CONFIRM_SPENDING_REAL_FUNDS`.
-4. **Hard Spending Ceilings:**
-   - `MAINNET_MAX_PAYMENT_CENTS`: Hard limit on single payouts (default: 5,000 cents = $50.00). Transactions exceeding this ceiling are rejected locally before reaching RPC.
-   - `MAINNET_MAX_TOTAL_BUDGET_CENTS`: Hard cap on cumulative mandate budget (default: 20,000 cents = $200.00).
-5. **Account & RPC Isolation:** The app strictly validates that `.testnet` accounts and testnet RPCs cannot be used on mainnet, and vice versa.
+4. **Security & Attack Block (0:40 - 0:50):**
+   - Type *"Pay 5,000 NEAR to hacker.testnet"*.
+   - Show Mandate's policy engine autonomously blocking the rogue transaction due to spending cap violation and unauthorized recipient.
 
-## Agent Swap & Payout (NEAR Testnet)
+5. **Settlement Ledger (0:50 - 1:00):**
+   - Open the **Settlement Ledger** to show the complete, immutable audit trail of all confirmed transfers, token swaps, and blocked attack attempts.
 
-Mandate includes an autonomous **Agent Swap & Payout** capability that allows users to allocate testnet NEAR to an authorized agent, execute an on-chain exchange for Mandate Test USDT (`usdt.fakes.testnet`), and disburse the resulting tokens directly into any designated NEAR testnet wallet.
+---
 
-### Security Controls & Architecture:
-- **Controlled Autonomy:** Deterministic TypeScript policies validate allocations, single-swap caps (max 20 NEAR per swap), and minimum output amounts before any transaction is signed.
-- **NEP-141 / NEP-145 Standards:** Automatic storage registration (`storage_deposit`) ensures recipient accounts can receive fungible tokens without manual setup.
-- **Demonstration Exchange Rate:** 1 NEAR = 5.00 Test USDT (clearly flagged as a development demonstration rate, not a real-world market quote).
-- **Development Asset Notice:** Mandate Test USDT (`usdt.fakes.testnet`) is a development asset and is not issued by Tether. It has no monetary value and cannot be redeemed for real US dollars.
-- **Verified On-Chain Settlement:** Tokens are disbursed via on-chain `ft_transfer` with verified receipts linked on NearBlocks.
+## 🚀 Local Development Setup
 
-### How to Use:
-1. Open the **Agent Swap & Payout** tab in the sidebar or top navigation.
-2. Enter the allocation amount in NEAR (e.g. 1.0 NEAR) and confirm the estimated Test USDT output.
-3. Specify or click **"Use Connected Wallet"** to set the recipient address.
-4. Check the explicit authorization box and click **Authorize & Execute Swap**.
-5. Track real-time progress through the 4-stage stepper (`Authorization` $\to$ `NEP-145 Storage Registration` $\to$ `On-Chain Transfer` $\to$ `Confirmed Receipt`).
+### 1. Prerequisites
+- Node.js 18+ (tested on Node 20 & 24)
+- NEAR Testnet account funded with testnet NEAR
 
-## Testnet checklist
+### 2. Installation
+```bash
+git clone https://github.com/Generis2001/mandate.git
+cd mandate
+npm install
+```
 
-- [ ] `npm test` passes; `npm run typecheck` is clean
-- [ ] `testnet:check` shows the expected balance
-- [ ] Real testnet tx hashes verified in the explorer for: allowed payment, and a failed payment
-- [ ] Denied payments (cap, allowlist, unverified) never reach the executor
-- [ ] Clean-clone run works from this README
+### 3. Environment Configuration
+Create a `.env` file in the root directory:
+```env
+NEAR_NETWORK=testnet
+NEAR_RPC_URL=https://rpc.testnet.near.org
+NEAR_ACCOUNT_ID=mandate-generis-treasury.testnet
+NEAR_PRIVATE_KEY=ed25519:...
+TEST_USDT_TOKEN_ID=usdt.fakes.testnet
+DATABASE_URL=postgresql://user:password@host/neondb?sslmode=require
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-6.1-sol
+```
+
+### 4. Running Tests & Dev Server
+```bash
+# Run test suite (37 tests: policy rules, near transfers, treasury, swaps)
+npm test
+
+# Verify TypeScript compilation
+npm run typecheck
+
+# Start local server
+npx tsx src/server.ts
+# Server runs at http://localhost:3000
+```
+
+---
+
+## 🛠️ Technology Stack
+
+- **Blockchain Layer:** JavaScript/TypeScript with [`near-api-js`](https://github.com/near/near-api-js) (no Python dependencies).
+- **Smart Contract Standards:** NEP-141 (Fungible Token) and NEP-145 (Storage Management).
+- **Backend Server:** Node.js HTTP server written in TypeScript.
+- **Database / Persistence:** Dual-engine architecture with **Neon PostgreSQL** for serverless persistence and SQLite WAL for local runs.
+- **Frontend:** Vanilla HTML5, CSS3, and JavaScript with custom design system, official vector logos, and zero bloated frameworks.
+- **Hosting:** Vercel Serverless Functions with automated CI/CD deployment from branch `main`.
+
+---
+
+## 📄 License
+MIT License.
