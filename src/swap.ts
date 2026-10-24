@@ -267,6 +267,7 @@ export class AgentSwapService {
         `Agent Swap & Payout: ${req.inputNear} NEAR -> ${outputUsdt} Test USDT to ${dest}`,
         payoutTxHash
       );
+      store.fundUserUsdtBalance(req.userAccount, outputUsdt);
 
       store.updateSwapRecord(swapId, {
         status: "payout_confirmed",

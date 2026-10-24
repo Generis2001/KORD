@@ -1300,3 +1300,108 @@ textarea#promptInput::placeholder {
   vertical-align: middle;
   flex-shrink: 0;
 }
+
+
+/* --- Optimized Sidebar Wallet Card (Fits 260px Sidebar Perfectly) --- */
+.sidebar-wallet-card {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.sidebar-wallet-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(16, 163, 127, 0.35);
+}
+.sidebar-wallet-card.disconnected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.sidebar-wallet-card.disconnected:hover {
+  border-color: #10a37f;
+  background: rgba(16, 163, 127, 0.05);
+}
+.wallet-connect-cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wallet-badge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.wallet-id-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  max-width: 145px;
+}
+.wallet-account-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-disconnect-sm {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-disconnect-sm:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+.wallet-token-balances {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.token-balance-chip {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 5px 8px;
+  border-radius: 6px;
+  width: 100%;
+}
+.token-chip-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.token-chip-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+.token-chip-amount {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #f8fafc;
+}

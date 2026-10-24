@@ -1,11 +1,6 @@
 // --- Multi-User & Wallet State ---
-let currentAccount = localStorage.getItem('mandate_current_account');
-if (!currentAccount || currentAccount.startsWith('client-') || currentAccount === 'default-user.testnet') {
-  currentAccount = 'generis.testnet';
-  localStorage.setItem('mandate_current_account', currentAccount);
-}
-
-let connectedWallet = currentAccount;
+let connectedWallet = localStorage.getItem('mandate_connected_wallet') || null;
+let currentAccount = connectedWallet;
 let activeConversationId = 'conv_' + Date.now();
 let conversationMessages = [];
 
@@ -131,7 +126,12 @@ function updateAccountBadgeUI() {
 
 // Update Wallet UI state
 function updateWalletUI() {
+  const sidebarDisconnectedCard = document.getElementById('sidebarDisconnectedCard');
+  const sidebarConnectedCard = document.getElementById('sidebarConnectedCard');
+  const sidebarAccountName = document.getElementById('sidebarAccountName');
+
   if (connectedWallet) {
+    currentAccount = connectedWallet;
     if (connectWalletBtn) {
       connectWalletBtn.classList.add('connected');
     }
@@ -139,14 +139,21 @@ function updateWalletUI() {
     if (walletBtnText) walletBtnText.textContent = connectedWallet.slice(0, 14) + (connectedWallet.length > 14 ? '...' : '');
     if (walletConnectedCard) walletConnectedCard.style.display = 'block';
     if (modalConnectedAccount) modalConnectedAccount.textContent = connectedWallet;
+    if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'none';
+    if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'block';
+    if (sidebarAccountName) sidebarAccountName.textContent = connectedWallet;
     loadConnectedWalletBalance();
+    loadTreasuryBalance();
   } else {
+    currentAccount = null;
     if (connectWalletBtn) {
       connectWalletBtn.classList.remove('connected');
     }
     if (walletStatusDot) walletStatusDot.classList.remove('online');
     if (walletBtnText) walletBtnText.textContent = 'Connect Wallet';
     if (walletConnectedCard) walletConnectedCard.style.display = 'none';
+    if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'flex';
+    if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'none';
   }
 }
 
@@ -155,19 +162,40 @@ async function loadConnectedWalletBalance() {
   try {
     const res = await fetch('/api/treasury?account=' + encodeURIComponent(connectedWallet));
     const data = await res.json();
-    if (data && modalConnectedBalance) {
-      modalConnectedBalance.textContent = data.formatted || 'Connected';
+    if (data) {
+      if (modalConnectedBalance) {
+        modalConnectedBalance.textContent = data.formatted || 'Connected';
+      }
+      const sidebarNearBalance = document.getElementById('sidebarNearBalance');
+      if (sidebarNearBalance && data.balanceNear !== undefined) {
+        sidebarNearBalance.textContent = Number(data.balanceNear).toFixed(2);
+      }
+      const sidebarUsdtBalance = document.getElementById('sidebarUsdtBalance');
+      if (sidebarUsdtBalance && data.userUsdt !== undefined) {
+        sidebarUsdtBalance.textContent = Number(data.userUsdt).toFixed(2);
+      }
     }
   } catch {}
 }
 
 // Fetch Live On-Chain Treasury Balance
 async function loadTreasuryBalance() {
+  if (!connectedWallet) return;
   try {
     const res = await fetch('/api/treasury', { headers: getApiHeaders() });
     const data = await res.json();
-    if (data && data.formatted) {
-      updateTreasuryUI(data.formatted);
+    if (data) {
+      if (data.formatted) {
+        updateTreasuryUI(data.formatted);
+      }
+      const sidebarNearBalance = document.getElementById('sidebarNearBalance');
+      if (sidebarNearBalance && data.balanceNear !== undefined) {
+        sidebarNearBalance.textContent = Number(data.balanceNear).toFixed(2);
+      }
+      const sidebarUsdtBalance = document.getElementById('sidebarUsdtBalance');
+      if (sidebarUsdtBalance && data.userUsdt !== undefined) {
+        sidebarUsdtBalance.textContent = Number(data.userUsdt).toFixed(2);
+      }
     }
   } catch (err) {
     console.error('Failed to load treasury balance', err);
@@ -290,11 +318,15 @@ if (confirmManualWalletBtn) {
     const acc = (manualWalletInput.value || '').trim().toLowerCase();
     if (!acc) return;
     connectedWallet = acc.endsWith('.testnet') ? acc : acc + '.testnet';
+    currentAccount = connectedWallet;
     localStorage.setItem('mandate_connected_wallet', connectedWallet);
+    localStorage.setItem('mandate_current_account', currentAccount);
     manualWalletInput.value = '';
     updateWalletUI();
     walletModal.classList.remove('open');
     showToast('Linked wallet: ' + connectedWallet);
+    loadTreasuryBalance();
+    loadConversations();
   });
 }
 
@@ -703,6 +735,13 @@ document.querySelectorAll('.history-item[data-action]').forEach(item => {
 async function handleSubmit() {
   const text = promptInput.value.trim();
   if (!text) return;
+
+  if (!connectedWallet) {
+    const wm = document.getElementById('walletModal');
+    if (wm) wm.classList.add('open');
+    showToast('Please connect your NEAR testnet wallet first');
+    return;
+  }
 
   heroScreen.style.display = 'none';
   appendUserMessage(text, true);
@@ -1338,3 +1377,36 @@ document.querySelectorAll('.modal-backdrop').forEach(modal => {
     }
   });
 });
+
+
+window.quickConnectPreset = function(accId) {
+  connectedWallet = accId.trim().toLowerCase();
+  currentAccount = connectedWallet;
+  localStorage.setItem('mandate_connected_wallet', connectedWallet);
+  localStorage.setItem('mandate_current_account', currentAccount);
+  walletModal.classList.remove('open');
+  showToast('Connected ' + connectedWallet);
+  updateWalletUI();
+  loadTreasuryStatus();
+  loadConversations();
+};
+
+  const sidebarDisconnectedCard = document.getElementById('sidebarDisconnectedCard');
+  if (sidebarDisconnectedCard) {
+    sidebarDisconnectedCard.addEventListener('click', () => {
+      walletModal.classList.add('open');
+    });
+  }
+  const sidebarDisconnectBtn = document.getElementById('sidebarDisconnectBtn');
+  if (sidebarDisconnectBtn) {
+    sidebarDisconnectBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      connectedWallet = null;
+      currentAccount = null;
+      localStorage.removeItem('mandate_connected_wallet');
+      localStorage.removeItem('mandate_current_account');
+      updateWalletUI();
+      showToast('Wallet disconnected');
+    });
+  }
+  

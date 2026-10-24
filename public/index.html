@@ -76,24 +76,38 @@
       </div>
 
       <div class="sidebar-footer">
-        <div class="linked-wallet-card" id="openAccountModalBtn" title="Mandate Linked Wallet & Balances (Click to switch)">
+        <!-- Disconnected State Prompt -->
+        <div class="sidebar-wallet-card disconnected" id="sidebarDisconnectedCard" title="Click to connect NEAR wallet">
+          <div class="wallet-connect-cta">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+            <span style="font-weight:600; font-size:13px; color:#fff;">Connect Wallet</span>
+          </div>
+          <span style="font-size:11px; color:#94a3b8; line-height:1.35;">Connect your NEAR testnet wallet to view balances and mandate actions.</span>
+        </div>
+
+        <!-- Connected State Card -->
+        <div class="sidebar-wallet-card connected" id="sidebarConnectedCard" style="display:none;" title="Mandate Linked Wallet">
           <div class="wallet-badge-header">
             <div class="wallet-id-wrap">
               <span class="live-dot online" id="sidebarWalletDot"></span>
               <span class="wallet-account-id" id="sidebarAccountName">generis.testnet</span>
             </div>
-            <button class="btn-switch-account" id="sidebarSwitchBtn" title="Switch Mandate Account">Switch</button>
+            <button class="btn-disconnect-sm" id="sidebarDisconnectBtn" title="Disconnect Wallet">Disconnect</button>
           </div>
           <div class="wallet-token-balances">
             <div class="token-balance-chip" title="NEAR Balance">
-              <img src="assets/near.png" alt="NEAR" class="token-logo-img">
-              <span class="token-val" id="sidebarNearBalance">10.00</span>
-              <span class="token-sym">NEAR</span>
+              <div class="token-chip-left">
+                <img src="assets/near.png" alt="NEAR" class="token-logo-img">
+                <span class="token-chip-label">NEAR</span>
+              </div>
+              <span class="token-chip-amount" id="sidebarNearBalance">10.00</span>
             </div>
             <div class="token-balance-chip" title="Test USDT Balance">
-              <img src="assets/usdt.png" alt="USDT" class="token-logo-img">
-              <span class="token-val" id="sidebarUsdtBalance">60.00</span>
-              <span class="token-sym">USDT</span>
+              <div class="token-chip-left">
+                <img src="assets/usdt.png" alt="USDT" class="token-logo-img">
+                <span class="token-chip-label">USDT</span>
+              </div>
+              <span class="token-chip-amount" id="sidebarUsdtBalance">60.00</span>
             </div>
           </div>
         </div>
@@ -124,17 +138,10 @@
 
         <div class="right-nav" style="display:flex; align-items:center; gap:8px;">
           <!-- Live On-Chain Wallet Connect Badge -->
-          <button class="wallet-badge-btn" id="connectWalletBtn" title="Connect NEAR Testnet Wallet">
+          <button class="wallet-badge-btn" id="connectWalletBtn" title="NEAR Testnet Wallet">
             <span class="wallet-dot" id="walletStatusDot"></span>
             <span id="walletBtnText">Connect Wallet</span>
           </button>
-          <!-- Account Switcher Badge -->
-          <div class="user-account-badge" id="accountSelectorBtn" title="Switch or Create Mandate Account">
-            <div class="user-avatar-tiny" id="headerAvatar">M</div>
-            <span class="account-name-text" id="headerAccountName">generis.testnet</span>
-            <span class="account-badge-pill" id="headerBalancePill">10.00 NEAR</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </div>
 
           <button class="header-link-btn" id="headerAllowlistBtn">Payable Allowlist</button>
           <button class="header-link-btn" id="headerLedgerBtn">Ledger</button>
@@ -420,6 +427,15 @@
 
         <!-- Wallet Provider Options -->
         <div id="walletProviderOptions" style="display:flex; flex-direction:column; gap:10px;">
+          <!-- Quick Demo Testnet Presets (1-Click Connect) -->
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 12px;">
+            <div style="font-size:11px; color:#94a3b8; font-weight:600; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">Quick Testnet Accounts</div>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn-subtle" style="flex:1; font-size:12px; font-family:var(--font-mono); padding:6px 8px; border-color:rgba(16,163,127,0.4); color:#10a37f;" onclick="quickConnectPreset('generis.testnet')">⚡ generis.testnet</button>
+              <button type="button" class="btn-subtle" style="flex:1; font-size:12px; font-family:var(--font-mono); padding:6px 8px; border-color:rgba(16,163,127,0.4); color:#10a37f;" onclick="quickConnectPreset('alice.testnet')">⚡ alice.testnet</button>
+            </div>
+          </div>
+
           <!-- MyNearWallet -->
           <div class="wallet-option-item" id="connectMyNearWalletBtn">
             <div style="display:flex; align-items:center; gap:12px;">

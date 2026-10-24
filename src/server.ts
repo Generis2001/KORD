@@ -117,10 +117,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       } catch {}
 
       const userBal = store.getUserBalance(userAccount);
-      let userUsdt = 0;
-      try {
-        userUsdt = await swapService.getTokenBalance(userAccount);
-      } catch {}
+      const userUsdt = store.getUserUsdtBalance(userAccount);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         accountId: nearCfg.accountId,
@@ -367,6 +364,40 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       }
 
       const lower = prompt.toLowerCase();
+
+      
+      // Case Swap USDT -> NEAR: e.g. "swap 1 usdt for near", "exchange 5 usdt to near"
+      const swapUsdtMatch = lower.match(/(?:swap|exchange)\s+([0-9.]+)\s*(?:test\s+)?usdt(?:\s+(?:for|to)\s+near)?(?:\s+(?:to|for)\s+([a-z0-9._-]+))?/i);
+      if (swapUsdtMatch) {
+        const amtUsdt = parseFloat(swapUsdtMatch[1]);
+        const targetDest = swapUsdtMatch[2] ? swapUsdtMatch[2].trim().toLowerCase() : userAccount;
+        if (!isNaN(amtUsdt) && amtUsdt > 0) {
+          const currentUsdt = store.getUserUsdtBalance(userAccount);
+          if (currentUsdt < amtUsdt) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+              type: 'text',
+              message: `❌ **Insufficient USDT Balance:** You requested to swap **${amtUsdt} USDT**, but your available balance is **${currentUsdt.toFixed(2)} USDT**.`
+            }));
+          }
+          const outputNear = Number((amtUsdt / 5.0).toFixed(2));
+          store.deductUserUsdtBalance(userAccount, amtUsdt);
+          const afterNear = store.fundUserBalance(userAccount, outputNear, `Swap ${amtUsdt} Test USDT -> ${outputNear} NEAR`);
+          const afterUsdt = store.getUserUsdtBalance(userAccount);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({
+            type: 'text',
+            message: `✅ **Agent Swap & Payout Confirmed!**\n\n` +
+              `• **NEAR Received:** **${outputNear} NEAR**\n` +
+              `• **Test USDT Swapped:** **${amtUsdt} USDT**\n` +
+              `• **Rate:** 5 Test USDT = 1 NEAR (Demo Rate)\n` +
+              `• **Recipient Account:** \`${targetDest}\`\n\n` +
+              `📊 **Updated Wallet Balances:**\n` +
+              `• **NEAR Available:** **${afterNear.toFixed(2)} NEAR**\n` +
+              `• **Test USDT Available:** **${afterUsdt.toFixed(2)} USDT**`
+          }));
+        }
+      }
 
       // Case Swap: Agent Swap & Payout via chat
       const swapMatch = lower.match(/(?:swap|exchange)\s+([0-9.]+)\s*near(?:\s+(?:for|to)\s+(?:test\s+)?usdt)?(?:\s+(?:to|for)\s+([a-z0-9._-]+))?/i);

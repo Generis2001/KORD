@@ -109,6 +109,7 @@ export class Store {
         account_id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
         balance_near REAL NOT NULL DEFAULT 10.00,
+        balance_usdt REAL NOT NULL DEFAULT 60.00,
         created_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS agent_swaps (
         id TEXT PRIMARY KEY,
@@ -137,6 +138,11 @@ export class Store {
     `);
 
     // Safe schema migrations for existing DB instances
+    try { this.db.exec("ALTER TABLE user_accounts ADD COLUMN balance_usdt REAL DEFAULT 60.00"); } catch {}
+    if (this.pgPool) {
+      this.pgPool.query("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS balance_usdt REAL DEFAULT 60.00").catch(() => {});
+    }
+
     try { this.db.exec("ALTER TABLE allowlist ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
     try { this.db.exec("ALTER TABLE treasury_ledger ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
     try { this.db.exec("ALTER TABLE payments ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
@@ -209,7 +215,10 @@ export class Store {
     if (existing) {
       return { accountId: existing.account_id, balanceNear: Number(existing.balance_near) };
     }
-    this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near) VALUES (?, ?, ?)").run(acc, `User ${acc}`, initialBalance);
+    this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?)").run(acc, `User ${acc}`, initialBalance, 60.00);
+    if (this.pgPool) {
+      this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id) DO NOTHING", [acc, `User ${acc}`, initialBalance, 60.00]).catch(() => {});
+    }
     // Seed user's personal allowlist with default specialized agents
     const defaultAgents = [
       "mandate-generis-researcher.testnet",
@@ -267,6 +276,43 @@ export class Store {
     const newBal = current >= amountNear ? current - amountNear : 0;
     this.setUserBalance(userAccount, newBal);
     this.db.prepare("INSERT INTO treasury_ledger (type, amount_near, balance_after, user_account, note, tx_hash) VALUES ('DISBURSE', ?, ?, ?, ?, ?)").run(amountNear, newBal, userAccount, note, txHash || null);
+    return newBal;
+  }
+
+  
+  getUserUsdtBalance(userAccount: string): number {
+    const acc = userAccount.trim().toLowerCase();
+    try {
+      const row = this.db.prepare("SELECT balance_usdt FROM user_accounts WHERE account_id=?").get(acc) as any;
+      if (row && row.balance_usdt !== null && row.balance_usdt !== undefined) {
+        return Number(row.balance_usdt);
+      }
+    } catch {}
+    return 60.00;
+  }
+
+  setUserUsdtBalance(userAccount: string, balance: number): void {
+    const acc = userAccount.trim().toLowerCase();
+    const cleanBal = Math.max(0, balance);
+    try {
+      this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_usdt=excluded.balance_usdt").run(acc, `User ${acc}`, 10.00, cleanBal);
+      if (this.pgPool) {
+        this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT(account_id) DO UPDATE SET balance_usdt=EXCLUDED.balance_usdt", [acc, `User ${acc}`, 10.00, cleanBal]).catch(() => {});
+      }
+    } catch {}
+  }
+
+  fundUserUsdtBalance(userAccount: string, amountUsdt: number): number {
+    const current = this.getUserUsdtBalance(userAccount);
+    const newBal = current + amountUsdt;
+    this.setUserUsdtBalance(userAccount, newBal);
+    return newBal;
+  }
+
+  deductUserUsdtBalance(userAccount: string, amountUsdt: number): number {
+    const current = this.getUserUsdtBalance(userAccount);
+    const newBal = current >= amountUsdt ? current - amountUsdt : 0;
+    this.setUserUsdtBalance(userAccount, newBal);
     return newBal;
   }
 
