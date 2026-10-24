@@ -552,13 +552,22 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             }
             txHash = executionResult.txHash;
           } catch (netErr: any) {
+            let msg = '❌ **NEAR Testnet Execution Error:** ' + formatNearErrorMessage(netErr.message) + '\n\nPlease verify network connectivity or recipient account validity.';
+            if (netErr.message && netErr.message.includes('Not enough balance for mandate-generis-treasury.testnet')) {
+              msg = '❌ **Agent Treasury Account Low on On-Chain Testnet Funds:**\n\n' +
+                '• Your connected wallet (`' + userAccount + '`) has sufficient quota.\n' +
+                '• However, Mandate\'s autonomous signing treasury (`mandate-generis-treasury.testnet`) currently holds only **0.04 NEAR** on NEAR Testnet due to previous demo transactions.\n\n' +
+                '⚡ **To fund the treasury directly:**\n' +
+                'Send 2–5 Testnet NEAR from your wallet to `mandate-generis-treasury.testnet` via [MyNearWallet (Click here)](https://testnet.mynearwallet.com/send-money?recipient=mandate-generis-treasury.testnet&amount=3) or Meteor Wallet.\n\n' +
+                'Once funded, your on-chain payment of ' + amountNear + ' NEAR to `' + recipient + '` will execute immediately!';
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
               type: 'payment_failed',
               recipient,
               amountNear,
               error: netErr.message,
-              message: '❌ **NEAR Testnet Execution Error:** ' + formatNearErrorMessage(netErr.message) + '\n\nPlease verify network connectivity or recipient account validity.'
+              message: msg
             }));
           }
 
