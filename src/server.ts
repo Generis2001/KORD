@@ -391,6 +391,9 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({
             type: 'text',
+            treasuryBalance: afterNear.toFixed(2),
+            balanceNear: afterNear,
+            userUsdt: afterUsdt,
             message: `✅ **Agent Swap & Payout Confirmed!**\n\n` +
               `• **NEAR Received:** **${outputNear} NEAR**\n` +
               `• **Test USDT Swapped:** **${amtUsdt} USDT**\n` +
