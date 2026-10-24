@@ -1282,3 +1282,21 @@ textarea#promptInput::placeholder {
   color: rgba(255, 255, 255, 0.2);
   margin: 0 4px;
 }
+
+
+/* Exact Token Logo Images */
+.token-logo-img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.token-logo-img-sm {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  object-fit: contain;
+  vertical-align: middle;
+  flex-shrink: 0;
+}

@@ -103,8 +103,8 @@ function getApiHeaders() {
 }
 
 // Sidebar toggle
-sidebarOpenBtn.addEventListener('click', () => sidebar.classList.remove('collapsed'));
-sidebarCloseBtn.addEventListener('click', () => sidebar.classList.add('collapsed'));
+if (sidebarOpenBtn) sidebarOpenBtn.addEventListener('click', () => sidebar.classList.remove('collapsed'));
+if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', () => sidebar.classList.add('collapsed'));
 
 function showToast(msg) {
   toastNotify.textContent = msg;
@@ -125,6 +125,8 @@ function updateTreasuryUI(balStr) {
 function updateAccountBadgeUI() {
   if (headerAccountName) headerAccountName.textContent = currentAccount;
   if (modalActiveAccountName) modalActiveAccountName.textContent = currentAccount;
+  const sidebarAccountName = document.getElementById('sidebarAccountName');
+  if (sidebarAccountName) sidebarAccountName.textContent = currentAccount;
 }
 
 // Update Wallet UI state
@@ -221,7 +223,7 @@ window.fundDirectly = async function(amount) {
   }
 };
 
-confirmFundBtn.addEventListener('click', async () => {
+if (confirmFundBtn) confirmFundBtn.addEventListener('click', async () => {
   const val = parseFloat(customFundInput.value);
   if (isNaN(val) || val <= 0) {
     alert('Please enter a valid NEAR amount');
@@ -296,34 +298,42 @@ if (confirmManualWalletBtn) {
   });
 }
 
-openFundModalBtn.addEventListener('click', () => {
-  fundModal.classList.add('open');
-  loadTreasuryBalance();
-});
-closeFundModal.addEventListener('click', () => fundModal.classList.remove('open'));
+if (openFundModalBtn) {
+  openFundModalBtn.addEventListener('click', () => {
+    fundModal.classList.add('open');
+    loadTreasuryBalance();
+  });
+}
+if (closeFundModal) closeFundModal.addEventListener('click', () => fundModal.classList.remove('open'));
 
 function openAllowlist() {
   allowlistModal.classList.add('open');
   loadAllowlist();
 }
-navAllowlist.addEventListener('click', openAllowlist);
-headerAllowlistBtn.addEventListener('click', openAllowlist);
-closeAllowlistModal.addEventListener('click', () => allowlistModal.classList.remove('open'));
+if (navAllowlist) navAllowlist.addEventListener('click', openAllowlist);
+if (headerAllowlistBtn) headerAllowlistBtn.addEventListener('click', openAllowlist);
+if (closeAllowlistModal) closeAllowlistModal.addEventListener('click', () => allowlistModal.classList.remove('open'));
 
 function openLedger() {
   ledgerModal.classList.add('open');
   loadLedger();
 }
-navLedger.addEventListener('click', openLedger);
-headerLedgerBtn.addEventListener('click', openLedger);
-closeLedgerModal.addEventListener('click', () => ledgerModal.classList.remove('open'));
+if (navLedger) navLedger.addEventListener('click', openLedger);
+if (headerLedgerBtn) headerLedgerBtn.addEventListener('click', openLedger);
+if (closeLedgerModal) closeLedgerModal.addEventListener('click', () => ledgerModal.classList.remove('open'));
 
 // Account Modal Listeners
-accountSelectorBtn.addEventListener('click', () => {
-  accountModal.classList.add('open');
-  loadAccountsList();
-});
-closeAccountModal.addEventListener('click', () => accountModal.classList.remove('open'));
+if (accountSelectorBtn) {
+  accountSelectorBtn.addEventListener('click', () => {
+    accountModal.classList.add('open');
+    loadAccountsList();
+  });
+}
+if (closeAccountModal) {
+  closeAccountModal.addEventListener('click', () => {
+    accountModal.classList.remove('open');
+  });
+}
 
 // Load Accounts List
 async function loadAccountsList() {
@@ -1318,3 +1328,13 @@ updateWalletUI();
 checkWalletCallback();
 loadTreasuryBalance();
 loadConversationsList();
+
+
+// Universal modal backdrop click to close
+document.querySelectorAll('.modal-backdrop').forEach(modal => {
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.classList.remove('open');
+    }
+  });
+});
