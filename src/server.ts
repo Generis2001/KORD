@@ -62,6 +62,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // Extract user account for isolation (or fallback to default user)
   const userAccountHeader = (req.headers['x-mandate-account'] as string) || url.searchParams.get('account');
   const userAccount = (userAccountHeader ? userAccountHeader.trim().toLowerCase() : 'default-user.testnet');
+
+  try {
+    await store.syncFromPostgres();
+  } catch {}
   store.getOrCreateUser(userAccount, 10.00);
 
   // 1. /api/accounts (GET list, POST create/switch)
@@ -416,10 +420,13 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
             if (swapResult.status === 'confirmed') {
               const currentBal = store.getUserBalance(userAccount);
+              const currentUsdt = store.getUserUsdtBalance(userAccount);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               return res.end(JSON.stringify({
                 type: 'text',
                 treasuryBalance: currentBal.toFixed(2),
+                balanceNear: currentBal,
+                userUsdt: currentUsdt,
                 message: `✅ **Agent Swap & Payout Confirmed!**\n\n` +
                   `• **NEAR Spent:** **${amt} NEAR**\n` +
                   `• **Test USDT Received:** **${swapResult.outputUsdt} USDT**\n` +

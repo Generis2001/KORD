@@ -142,6 +142,12 @@ function updateWalletUI() {
     if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'none';
     if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'block';
     if (sidebarAccountName) sidebarAccountName.textContent = connectedWallet;
+    const cachedNear = localStorage.getItem('mandate_bal_near_' + connectedWallet);
+    const cachedUsdt = localStorage.getItem('mandate_bal_usdt_' + connectedWallet);
+    const sNear = document.getElementById('sidebarNearBalance');
+    const sUsdt = document.getElementById('sidebarUsdtBalance');
+    if (sNear && cachedNear) sNear.textContent = cachedNear;
+    if (sUsdt && cachedUsdt) sUsdt.textContent = cachedUsdt;
     loadConnectedWalletBalance();
     loadTreasuryBalance();
   } else {
@@ -760,6 +766,16 @@ async function handleSubmit() {
     });
     const data = await res.json();
     renderAssistantResponse(placeholderId, data, true);
+    if (data && data.balanceNear !== undefined) {
+      const sidebarNear = document.getElementById('sidebarNearBalance');
+      if (sidebarNear) sidebarNear.textContent = Number(data.balanceNear).toFixed(2);
+      if (currentAccount) localStorage.setItem('mandate_bal_near_' + currentAccount, Number(data.balanceNear).toFixed(2));
+    }
+    if (data && data.userUsdt !== undefined) {
+      const sidebarUsdt = document.getElementById('sidebarUsdtBalance');
+      if (sidebarUsdt) sidebarUsdt.textContent = Number(data.userUsdt).toFixed(2);
+      if (currentAccount) localStorage.setItem('mandate_bal_usdt_' + currentAccount, Number(data.userUsdt).toFixed(2));
+    }
     loadTreasuryBalance();
     loadLedger();
   } catch (err) {
@@ -1387,7 +1403,7 @@ window.quickConnectPreset = function(accId) {
   walletModal.classList.remove('open');
   showToast('Connected ' + connectedWallet);
   updateWalletUI();
-  loadTreasuryStatus();
+  loadTreasuryBalance();
   loadConversations();
 };
 

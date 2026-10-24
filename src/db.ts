@@ -64,6 +64,18 @@ export class Store {
     } else {
       this.db = new Database(targetPath);
     }
+
+    try {
+      this.pgPool = new pg.Pool({
+        connectionString: NEON_POSTGRES_URL,
+        ssl: { rejectUnauthorized: false },
+        max: 5,
+        idleTimeoutMillis: 10000
+      });
+      this.pgPool.query("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS balance_usdt REAL DEFAULT 60.00").catch(() => {});
+    } catch {
+      this.pgPool = null;
+    }
     if (!isVercel) {
       try {
         this.db.pragma("journal_mode = WAL");
@@ -427,9 +439,9 @@ export class Store {
   async syncFromPostgres(): Promise<void> {
     if (!this.pgPool) return;
     try {
-      const uRes = await this.pgPool.query("SELECT account_id, label, balance_near FROM user_accounts");
+      const uRes = await this.pgPool.query("SELECT account_id, label, balance_near, COALESCE(balance_usdt, 60.00) as balance_usdt FROM user_accounts");
       for (const row of uRes.rows) {
-        this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near) VALUES (?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near").run(row.account_id, row.label, Number(row.balance_near));
+        this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near, balance_usdt=excluded.balance_usdt").run(row.account_id, row.label, Number(row.balance_near), Number(row.balance_usdt));
       }
       const cRes = await this.pgPool.query("SELECT id, user_account, title, messages_json, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 50");
       for (const row of cRes.rows) {
