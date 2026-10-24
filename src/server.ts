@@ -67,7 +67,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // 1. /api/accounts (GET list, POST create/switch)
   if (url.pathname === '/api/accounts') {
     if (req.method === 'GET') {
-      const users = store.listUsers();
+      const users = await store.listUsersAsync();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         activeAccount: userAccount,
@@ -117,6 +117,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       } catch {}
 
       const userBal = store.getUserBalance(userAccount);
+      let userUsdt = 0;
+      try {
+        userUsdt = await swapService.getTokenBalance(userAccount);
+      } catch {}
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         accountId: nearCfg.accountId,
@@ -125,7 +129,9 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         userAccount,
         userQuotaNear: userBal.toFixed(2),
         balanceNear: userBal.toFixed(2),
-        formatted: userBal.toFixed(2) + ' NEAR'
+        formatted: userBal.toFixed(2) + ' NEAR',
+        userUsdt: userUsdt.toFixed(2),
+        formattedUsdt: userUsdt.toFixed(2) + ' USDT'
       }));
     }
 
@@ -235,7 +241,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // 5. /api/conversations (GET list, POST save, DELETE remove)
   if (url.pathname === '/api/conversations') {
     if (req.method === 'GET') {
-      const convos = store.getConversations(userAccount);
+      const convos = await store.getConversationsAsync(userAccount);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(convos));
     }

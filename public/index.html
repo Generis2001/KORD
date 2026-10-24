@@ -55,7 +55,10 @@
         <div class="chat-history-list">
           <div class="history-item" id="quickActionSwap" data-action="Swap 2 NEAR for Test USDT">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-            <span style="color:#10a37f; font-weight:600;">Swap 2 NEAR for Test USDT</span>
+            <span style="color:#10a37f; font-weight:600; display:flex; align-items:center; gap:6px;">
+    Swap 2 NEAR for Test USDT
+    <svg style="width:14px; height:14px; vertical-align:middle;" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="50" fill="#26A17B"/><path d="M57.6 37.6V26H42.4V37.6H27V45.2H42.4V48.5C31.5 49.2 23.5 52 23.5 55.4C23.5 58.8 31.5 61.6 42.4 62.3V74H57.6V62.3C68.5 61.6 76.5 58.8 76.5 55.4C76.5 52 68.5 49.2 57.6 48.5V45.2H73V37.6H57.6ZM50 58.8C38.3 58.8 31.8 56.4 31.8 55.4C31.8 54.4 38.3 52 50 52C61.7 52 68.2 54.4 68.2 55.4C68.2 56.4 61.7 58.8 50 58.8Z" fill="#FFF"/></svg>
+  </span>
           </div>
           <div class="history-item" data-action="Pay 7 NEAR to zeal.testnet (add to allowlist)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -73,14 +76,31 @@
       </div>
 
       <div class="sidebar-footer">
-        <div class="user-badge" id="openFundModalBtn" title="Click to fund treasury">
-          <div class="user-avatar">M</div>
-          <div class="user-info">
-            <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
-              <span class="user-name">Treasury Balance</span>
-              <span class="btn-mini-fund">+ Fund</span>
+        <div class="linked-wallet-card" id="openAccountModalBtn" title="Mandate Linked Wallet & Balances (Click to switch)">
+          <div class="wallet-badge-header">
+            <div class="wallet-id-wrap">
+              <span class="live-dot online" id="sidebarWalletDot"></span>
+              <span class="wallet-account-id" id="sidebarAccountName">generis.testnet</span>
             </div>
-            <span class="user-role" id="footerTreasuryBalance">13.39 NEAR</span>
+            <button class="btn-switch-account" id="sidebarSwitchBtn" title="Switch Mandate Account">Switch</button>
+          </div>
+          <div class="wallet-token-balances">
+            <div class="token-balance-chip" title="NEAR Balance">
+              <svg class="token-logo-icon near-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="50" cy="50" r="50" fill="#000000"/>
+                <path d="M68.5 25.5L49.3 53.6C48.4 54.9 46.5 54.9 45.6 53.6L26.4 25.5C25.5 24.2 24 23.5 22.4 23.5H19C16.8 23.5 15 25.3 15 27.5V72.5C15 74.7 16.8 76.5 19 76.5H24C26.2 76.5 28 74.7 28 72.5V44.4L45.4 69.9C46.3 71.2 47.7 72 49.3 72H50.7C52.3 72 53.7 71.2 54.6 69.9L72 44.4V72.5C72 74.7 73.8 76.5 76 76.5H81C83.2 76.5 85 74.7 85 72.5V27.5C85 25.3 83.2 23.5 81 23.5H72.5C70.9 23.5 69.4 24.2 68.5 25.5Z" fill="#FFFFFF"/>
+              </svg>
+              <span class="token-val" id="sidebarNearBalance">10.00</span>
+              <span class="token-sym">NEAR</span>
+            </div>
+            <div class="token-balance-chip" title="Test USDT Balance">
+              <svg class="token-logo-icon usdt-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="50" cy="50" r="50" fill="#26A17B"/>
+                <path d="M57.6 37.6V26H42.4V37.6H27V45.2H42.4V48.5C31.5 49.2 23.5 52 23.5 55.4C23.5 58.8 31.5 61.6 42.4 62.3V74H57.6V62.3C68.5 61.6 76.5 58.8 76.5 55.4C76.5 52 68.5 49.2 57.6 48.5V45.2H73V37.6H57.6ZM50 58.8C38.3 58.8 31.8 56.4 31.8 55.4C31.8 54.4 38.3 52 50 52C61.7 52 68.2 54.4 68.2 55.4C68.2 56.4 61.7 58.8 50 58.8Z" fill="#FFFFFF"/>
+              </svg>
+              <span class="token-val" id="sidebarUsdtBalance">60.00</span>
+              <span class="token-sym">USDT</span>
+            </div>
           </div>
         </div>
       </div>

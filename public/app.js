@@ -5,7 +5,7 @@ if (!currentAccount || currentAccount.startsWith('client-') || currentAccount ==
   localStorage.setItem('mandate_current_account', currentAccount);
 }
 
-let connectedWallet = localStorage.getItem('mandate_connected_wallet') || null;
+let connectedWallet = currentAccount;
 let activeConversationId = 'conv_' + Date.now();
 let conversationMessages = [];
 
@@ -67,6 +67,21 @@ const addAccountBtn = document.getElementById('addAccountBtn');
 const fundModal = document.getElementById('fundModal');
 const closeFundModal = document.getElementById('closeFundModal');
 const openFundModalBtn = document.getElementById('openFundModalBtn');
+  const sidebarSwitchBtn = document.getElementById('sidebarSwitchBtn');
+  const openAccountModalBtn = document.getElementById('openAccountModalBtn');
+  if (sidebarSwitchBtn) {
+    sidebarSwitchBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadAccountsList();
+      accountModal.classList.add('open');
+    });
+  }
+  if (openAccountModalBtn) {
+    openAccountModalBtn.addEventListener('click', () => {
+      loadAccountsList();
+      accountModal.classList.add('open');
+    });
+  }
 const customFundInput = document.getElementById('customFundInput');
 const confirmFundBtn = document.getElementById('confirmFundBtn');
 const modalTreasuryBal = document.getElementById('modalTreasuryBal');
@@ -366,7 +381,9 @@ window.switchAccount = function(newAccId) {
     return;
   }
   currentAccount = newAccId.trim().toLowerCase();
+  connectedWallet = currentAccount;
   localStorage.setItem('mandate_current_account', currentAccount);
+  localStorage.setItem('mandate_connected_wallet', currentAccount);
   updateAccountBadgeUI();
   accountModal.classList.remove('open');
   showToast('Switched account to ' + currentAccount);

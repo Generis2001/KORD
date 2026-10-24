@@ -1,3 +1,5 @@
+import pg from "pg";
+const { Pool } = pg;
 import Database from "better-sqlite3";
 import type { Cents, Decision, Mandate, SpendState, Task, TaskStatus } from "./types.js";
 
@@ -42,7 +44,11 @@ export interface AllowlistEntry {
   addedAt: string;
 }
 
+
+export const NEON_POSTGRES_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || "postgresql://neondb_owner:npg_S3zZHhxodIk4@ep-cold-grass-apvo72sg.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require";
+
 export class Store {
+  readonly pgPool: pg.Pool | null = null;
   readonly db: Database.Database;
 
   constructor(path = ":memory:") {
@@ -243,6 +249,9 @@ export class Store {
   setUserBalance(userAccount: string, balance: number): void {
     const acc = userAccount.trim().toLowerCase();
     this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near) VALUES (?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near").run(acc, `User ${acc}`, balance);
+    if (this.pgPool) {
+      this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near) VALUES ($1, $2, $3) ON CONFLICT(account_id) DO UPDATE SET balance_near=EXCLUDED.balance_near", [acc, `User ${acc}`, balance]).catch(() => {});
+    }
   }
 
   fundUserBalance(userAccount: string, amountNear: number, note: string): number {
@@ -368,6 +377,60 @@ export class Store {
     }
   }
 
+  
+  async syncFromPostgres(): Promise<void> {
+    if (!this.pgPool) return;
+    try {
+      const uRes = await this.pgPool.query("SELECT account_id, label, balance_near FROM user_accounts");
+      for (const row of uRes.rows) {
+        this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near) VALUES (?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near").run(row.account_id, row.label, Number(row.balance_near));
+      }
+      const cRes = await this.pgPool.query("SELECT id, user_account, title, messages_json, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 50");
+      for (const row of cRes.rows) {
+        const msgStr = typeof row.messages_json === 'string' ? row.messages_json : JSON.stringify(row.messages_json || []);
+        this.db.prepare("INSERT INTO conversations (id, user_account, title, messages_json, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, updated_at=excluded.updated_at").run(row.id, row.user_account, row.title, msgStr, new Date(row.updated_at).toISOString());
+      }
+    } catch (e) {
+      // Offline or network error; local SQLite remains active
+    }
+  }
+
+  async getConversationsAsync(userAccount: string): Promise<any[]> {
+    if (this.pgPool) {
+      try {
+        const res = await this.pgPool.query(
+          "SELECT id, title, messages_json, updated_at FROM conversations WHERE LOWER(user_account) = LOWER($1) ORDER BY updated_at DESC LIMIT 30",
+          [userAccount.trim().toLowerCase()]
+        );
+        if (res.rows.length > 0) {
+          return res.rows.map(r => ({
+            id: r.id,
+            title: r.title,
+            updatedAt: r.updated_at,
+            messages: typeof r.messages_json === 'string' ? JSON.parse(r.messages_json) : (r.messages_json || [])
+          }));
+        }
+      } catch (err) {
+        console.error("PG getConversations error:", err);
+      }
+    }
+    return this.getConversations(userAccount);
+  }
+
+  async listUsersAsync(): Promise<{ accountId: string; balanceNear: number }[]> {
+    if (this.pgPool) {
+      try {
+        const res = await this.pgPool.query(
+          "SELECT account_id, balance_near FROM user_accounts WHERE account_id NOT LIKE 'client-%' AND account_id != 'default-user.testnet' ORDER BY created_at ASC"
+        );
+        if (res.rows.length > 0) {
+          return res.rows.map(r => ({ accountId: r.account_id, balanceNear: Number(r.balance_near) }));
+        }
+      } catch {}
+    }
+    return this.listUsers();
+  }
+
   // --- Conversations / Chat History ---
   getConversations(userAccount: string): any[] {
     try {
@@ -402,6 +465,9 @@ export class Store {
   deleteConversation(id: string): boolean {
     try {
       const res = this.db.prepare("DELETE FROM conversations WHERE id=?").run(id);
+    if (this.pgPool) {
+      this.pgPool.query("DELETE FROM conversations WHERE id=$1", [id]).catch(() => {});
+    }
       return res.changes > 0;
     } catch {
       return false;
