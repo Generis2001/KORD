@@ -1395,17 +1395,6 @@ document.querySelectorAll('.modal-backdrop').forEach(modal => {
 });
 
 
-window.quickConnectPreset = function(accId) {
-  connectedWallet = accId.trim().toLowerCase();
-  currentAccount = connectedWallet;
-  localStorage.setItem('mandate_connected_wallet', connectedWallet);
-  localStorage.setItem('mandate_current_account', currentAccount);
-  walletModal.classList.remove('open');
-  showToast('Connected ' + connectedWallet);
-  updateWalletUI();
-  loadTreasuryBalance();
-  loadConversations();
-};
 
   const sidebarDisconnectedCard = document.getElementById('sidebarDisconnectedCard');
   if (sidebarDisconnectedCard) {

@@ -254,10 +254,6 @@ export class Store {
   listUsers(): { accountId: string; balanceNear: number }[] {
     // Exclude auto-generated client- and default-user accounts
     const rows = this.db.prepare("SELECT account_id, balance_near FROM user_accounts WHERE account_id NOT LIKE 'client-%' AND account_id != 'default-user.testnet' ORDER BY created_at DESC").all() as any[];
-    if (rows.length === 0) {
-      this.getOrCreateUser('generis.testnet', 10.00);
-      return [{ accountId: 'generis.testnet', balanceNear: 10.00 }];
-    }
     return rows.map(r => ({ accountId: r.account_id, balanceNear: Number(r.balance_near) }));
   }
 

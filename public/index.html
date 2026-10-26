@@ -90,7 +90,7 @@
           <div class="wallet-badge-header">
             <div class="wallet-id-wrap">
               <span class="live-dot online" id="sidebarWalletDot"></span>
-              <span class="wallet-account-id" id="sidebarAccountName">generis.testnet</span>
+              <span class="wallet-account-id" id="sidebarAccountName">Connected Wallet</span>
             </div>
             <button class="btn-disconnect-sm" id="sidebarDisconnectBtn" title="Disconnect Wallet">Disconnect</button>
           </div>
@@ -137,6 +137,12 @@
         </div>
 
         <div class="right-nav" style="display:flex; align-items:center; gap:8px;">
+          <!-- Faucet Redirect Button with Official NEAR Logo -->
+          <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="header-faucet-btn" id="headerFaucetBtn" title="Claim Testnet NEAR (near-faucet.io)">
+            <img src="assets/near-faucet-logo.svg" alt="NEAR Faucet" class="faucet-btn-icon">
+            <span>Faucet</span>
+          </a>
+
           <!-- Live On-Chain Wallet Connect Badge -->
           <button class="wallet-badge-btn" id="connectWalletBtn" title="NEAR Testnet Wallet">
             <span class="wallet-dot" id="walletStatusDot"></span>
@@ -427,13 +433,18 @@
 
         <!-- Wallet Provider Options -->
         <div id="walletProviderOptions" style="display:flex; flex-direction:column; gap:10px;">
-          <!-- Quick Demo Testnet Presets (1-Click Connect) -->
-          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 12px;">
-            <div style="font-size:11px; color:#94a3b8; font-weight:600; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">Quick Testnet Accounts</div>
-            <div style="display:flex; gap:8px;">
-              <button type="button" class="btn-subtle" style="flex:1; font-size:12px; font-family:var(--font-mono); padding:6px 8px; border-color:rgba(16,163,127,0.4); color:#10a37f;" onclick="quickConnectPreset('generis.testnet')">⚡ generis.testnet</button>
-              <button type="button" class="btn-subtle" style="flex:1; font-size:12px; font-family:var(--font-mono); padding:6px 8px; border-color:rgba(16,163,127,0.4); color:#10a37f;" onclick="quickConnectPreset('alice.testnet')">⚡ alice.testnet</button>
+          <!-- Faucet Access Card (near-faucet.io) -->
+          <div class="wallet-faucet-card">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <img src="assets/near-faucet-logo.svg" alt="NEAR Faucet" style="width:28px; height:28px; border-radius:50%; box-shadow:0 0 10px rgba(168, 85, 247, 0.4);">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#fff;">Need Testnet NEAR?</div>
+                <div style="font-size:11px; color:#94a3b8;">Claim testnet NEAR into your connected wallet to power the Mandate Treasury.</div>
+              </div>
             </div>
+            <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="btn-subtle" style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; text-decoration:none; padding:6px 12px; color:#c084fc; border-color:rgba(168,85,247,0.4); border-radius:6px; white-space:nowrap;">
+              Faucet ↗
+            </a>
           </div>
 
           <!-- MyNearWallet -->

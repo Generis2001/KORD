@@ -469,7 +469,7 @@ ${formattedSummary}
       actionType: "research_service",
       serviceName: domain === "stablecoin_corridor" ? "corridor_data" : domain === "past_purchases" ? "ledger_audit" : "supplier_research",
       description: `Verified ${domain.replace('_', ' ')} research fee`,
-      userAccount: opts.userAccount || "generis.testnet"
+      userAccount: opts.userAccount || "mandate-user.testnet"
     } as any);
 
     if (payoutOutcome.status === "confirmed") {
@@ -567,7 +567,7 @@ ${formattedSummary}
         actionType: "purchase_order",
         serviceName: "external_service",
         description: "Unauthorized external vendor payment",
-        userAccount: opts.userAccount || "generis.testnet"
+        userAccount: opts.userAccount || "mandate-user.testnet"
       } as any);
       attackSimulations.push({
         attempt: "Agent attempted $5,000.00 unauthorized vendor transfer (Violates restriction: external purchases require approval)",
@@ -588,7 +588,7 @@ ${formattedSummary}
       actionType: "research_service",
       serviceName: "quotation_analysis",
       description: "Excess research fee override",
-      userAccount: opts.userAccount || "generis.testnet"
+      userAccount: opts.userAccount || "mandate-user.testnet"
     } as any);
 
     attackSimulations.push({

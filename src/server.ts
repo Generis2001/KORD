@@ -455,32 +455,53 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         }
       }
 
-      // Case A: Fund Treasury
-      const fundMatch = lower.match(/fund(?:\s+treasury)?\s+(?:with\s+)?([0-9.]+)\s*near/i) ||
-                        lower.match(/add\s+([0-9.]+)\s*near(?:\s+to\s+treasury)?/i) ||
-                        lower.match(/deposit\s+([0-9.]+)\s*near/i);
+      // Case A: Fund Agentic Treasury Wallet & Incoming Balance / Faucet Notifications
+      const fundMatch = lower.match(/(?:fund(?:\s+treasury)?\s+(?:with\s+)?|add\s+|deposit\s+|(?:i\s+)?(?:have\s+)?(?:received|got|claimed)\s+)([0-9.]+)\s*near/i);
 
       if (fundMatch) {
         const amt = parseFloat(fundMatch[1]);
         if (!isNaN(amt) && amt > 0) {
-          const after = store.fundUserBalance(userAccount, amt, `Chat deposit of ${amt} NEAR`);
+          const after = store.fundUserBalance(userAccount, amt, `Treasury credit of ${amt} NEAR for ${userAccount}`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({
             type: 'treasury_funded',
             amountNear: amt,
             newBalance: after.toFixed(2),
-            message: `Treasury successfully funded with **${amt} NEAR**.\n\n• **Account:** \`${userAccount}\`\n• **New Available Balance:** **${after.toFixed(2)} NEAR**`
+            balanceNear: after,
+            message: `✅ **Funds Credited to Mandate Agentic Wallet!**\n\n` +
+              `• **Received:** **+${amt} NEAR**\n` +
+              `• **Agentic Treasury Wallet:** \`${userAccount}\`\n` +
+              `• **Total Available Balance:** **${after.toFixed(2)} NEAR**\n\n` +
+              `Your autonomous agents can now spend from this quota under your defined spending limits, policy allowlists, and verification guardrails.`
           }));
         }
       }
 
-      // Case B: Balance query
-      if (/balance|how much (?:do i have|near)|treasury balance|check balance/i.test(lower)) {
-        const bal = store.getUserBalance(userAccount);
+      // Case A.2: Faucet Queries & Directives
+      if (/\b(?:faucet|claim near|get testnet near|free near|near faucet)\b/i.test(lower)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
           type: 'text',
-          message: `Your current treasury balance for \`${userAccount}\` is **${bal.toFixed(2)} NEAR**.`
+          message: `💧 **NEAR Testnet Faucet:**\n\n` +
+            `You can request free Testnet NEAR by visiting **[near-faucet.io](https://near-faucet.io/)** (or clicking the **Faucet** button in the top navigation bar).\n\n` +
+            `Once claimed into your connected wallet, deposit the funds into your **Mandate Treasury** (Agentic Wallet) to authorize autonomous agent execution, token swaps, and policy transfers.`
+        }));
+      }
+
+      // Case B: Balance query & Agentic Wallet Overview
+      if (/balance|how much (?:do i have|near)|treasury balance|check balance|wallet info/i.test(lower)) {
+        const bal = store.getUserBalance(userAccount);
+        const usdt = store.getUserUsdtBalance(userAccount);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          type: 'text',
+          balanceNear: bal,
+          userUsdt: usdt,
+          message: `🏛️ **Mandate Agentic Wallet Treasury:**\n\n` +
+            `• **Connected Account:** \`${userAccount}\`\n` +
+            `• **NEAR Available:** **${bal.toFixed(2)} NEAR**\n` +
+            `• **Test USDT Available:** **${usdt.toFixed(2)} USDT**\n\n` +
+            `The treasury acts as an autonomous agentic smart wallet. Autonomous tasks can draw funds only when spending guardrails and verification checks pass.`
         }));
       }
 
