@@ -3,235 +3,170 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mandate · Autonomous Business Agent</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <title>Mandate — Your intent, in motion.</title>
+  <meta name="description" content="Your onchain workspace. Move funds, swap tokens, and delegate work with spending limits you control.">
+  <meta name="theme-color" content="#f8f6f1">
+  <link rel="icon" href="assets/mandate-favicon.svg" type="image/svg+xml">
+  <script>
+    try { document.documentElement.dataset.theme = localStorage.getItem('mandate_theme') === 'dark' ? 'dark' : 'light'; } catch {}
+  </script>
   <link rel="stylesheet" href="style.css">
+  <script src="ui.js" defer></script>
 </head>
-<body class="dark-theme">
+<body>
   <div class="app-container">
-    
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <button class="new-chat-btn" id="newChatBtn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>New Chat</span>
-        </button>
-        <button class="sidebar-toggle-btn" id="sidebarCloseBtn" title="Close sidebar">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+    <aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
+      <div class="sidebar-brand-row">
+        <a class="brand-wrap" href="/" aria-label="Mandate home">
+          <svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg>
+          <span class="brand-title">mandate</span>
+        </a>
+        <button class="sidebar-toggle-btn" id="sidebarCloseBtn" title="Close sidebar" aria-label="Close sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
         </button>
       </div>
-
+      <div class="sidebar-header">
+        <button class="new-chat-btn" id="newChatBtn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>
+          <span>New conversation</span>
+          <kbd title="Ctrl or Command + J">⌘ J</kbd>
+        </button>
+      </div>
       <div class="sidebar-content">
-        <nav class="sidebar-nav">
-          <button class="nav-item active" id="navChat">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            <span>Agent Chat</span>
+        <div class="nav-section-title">Workspace</div>
+        <nav class="sidebar-nav" aria-label="Tools">
+          <button class="nav-item active" id="navChat" aria-current="page">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3z"/><path d="M8 8h8M8 12h5"/></svg>
+            <span>Agent chat</span>
+            <span class="nav-active-dot" aria-hidden="true"></span>
           </button>
           <button class="nav-item" id="navAllowlist">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
-            <span>Payable Allowlist</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7z"/><path d="m8 12 3 3 5-6"/></svg>
+            <span>Approved payees</span>
             <span class="allowlist-count-badge" id="allowlistBadge">4</span>
           </button>
           <button class="nav-item" id="navSwap">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-            <span>Agent Swap & Payout</span>
-            <span class="allowlist-count-badge" style="background:rgba(16,163,127,0.15); color:#10a37f; border:1px solid rgba(16,163,127,0.3);">USDT</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>
+            <span>Swap &amp; payout</span>
           </button>
           <button class="nav-item" id="navLedger">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-            <span>Settlement Ledger</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+            <span>Settlement ledger</span>
           </button>
         </nav>
-
-        <div class="nav-section-title">Past Conversations</div>
-        <div class="chat-history-list" id="conversationsListContainer" style="max-height: 220px; overflow-y: auto; margin-bottom: 14px;">
-          <!-- Populated dynamically via /api/conversations -->
-        </div>
-
-        <div class="nav-section-title">Quick Actions</div>
-        <div class="chat-history-list">
-          <div class="history-item" id="quickActionSwap" data-action="Swap 2 NEAR for Test USDT">
-            <img src="assets/near.png" alt="NEAR" style="width:14px; height:14px; border-radius:3px;">
-            <span style="color:#10a37f; font-weight:600; display:flex; align-items:center; gap:6px;">
-              Swap 2 NEAR for Test USDT
-              <img src="assets/usdt.png" alt="USDT" style="width:14px; height:14px; border-radius:3px;">
-            </span>
-          </div>
-          <div class="history-item" data-action="Pay 7 NEAR to zeal.testnet (add to allowlist)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-            <span>Pay 7 NEAR to zeal.testnet</span>
-          </div>
-          <div class="history-item" data-action="Fund treasury with 10 NEAR">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>Fund Treasury (+10 NEAR)</span>
-          </div>
-          <div class="history-item" data-action="Show my payable allowlist">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>
-            <span>View Approved Payees</span>
+        <div class="nav-section-title conversations-heading">Conversations <span aria-hidden="true">↙</span></div>
+        <div class="chat-history-list conversations-list" id="conversationsListContainer"></div>
+        <div class="sidebar-quick-actions">
+          <div class="nav-section-title">Shortcuts</div>
+          <div class="chat-history-list">
+            <button class="history-item" id="quickActionSwap" data-action="Swap 2 NEAR for Test USDT">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>
+              <span>Swap NEAR for Test USDT</span>
+            </button>
+            <button class="history-item" data-action="Pay 7 NEAR to zeal.testnet (add to allowlist)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m5 19 14-14M5 5h14v14"/></svg>
+              <span>Pay zeal.testnet</span>
+            </button>
+            <button class="history-item" data-action="Fund treasury with 10 NEAR">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M16 13v4m-2-2h4"/></svg>
+              <span>Fund your treasury</span>
+            </button>
+            <button class="history-item" data-action="Show my payable allowlist">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+              <span>View approved payees</span>
+            </button>
           </div>
         </div>
       </div>
-
       <div class="sidebar-footer">
-        <!-- Disconnected State Prompt -->
-        <div class="sidebar-wallet-card disconnected" id="sidebarDisconnectedCard" title="Click to connect NEAR wallet">
+        <div class="sidebar-wallet-card disconnected" id="sidebarDisconnectedCard" role="button" tabindex="0" aria-label="Connect your NEAR wallet">
           <div class="wallet-connect-cta">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
-            <span style="font-weight:600; font-size:13px; color:#fff;">Connect Wallet</span>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-3"/><path d="M21 8h-6a4 4 0 0 0 0 8h6z"/><circle cx="16" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
+            <span>Make yourself at home</span>
+            <span class="wallet-connect-arrow" aria-hidden="true">↗</span>
           </div>
-          <span style="font-size:11px; color:#94a3b8; line-height:1.35;">Connect your NEAR testnet wallet to view balances and mandate actions.</span>
+          <span class="wallet-connect-description">Connect your wallet to get started.</span>
+          <span class="wallet-connect-label">Connect wallet <span aria-hidden="true">→</span></span>
         </div>
-
-        <!-- Connected State Card -->
-        <div class="sidebar-wallet-card connected" id="sidebarConnectedCard" style="display:none;" title="Mandate Linked Wallet">
+        <div class="sidebar-wallet-card connected" id="sidebarConnectedCard" style="display:none;">
           <div class="wallet-badge-header">
             <div class="wallet-id-wrap">
               <span class="live-dot online" id="sidebarWalletDot"></span>
-              <span class="wallet-account-id" id="sidebarAccountName">Connected Wallet</span>
+              <span class="wallet-account-id" id="sidebarAccountName">Connected wallet</span>
             </div>
-            <button class="btn-disconnect-sm" id="sidebarDisconnectBtn" title="Disconnect Wallet">Disconnect</button>
+            <button class="btn-disconnect-sm" id="sidebarDisconnectBtn" title="Disconnect wallet">Disconnect</button>
           </div>
           <div class="wallet-token-balances">
-            <div class="token-balance-chip" title="NEAR Balance">
-              <div class="token-chip-left">
-                <img src="assets/near.png" alt="NEAR" class="token-logo-img">
-                <span class="token-chip-label">NEAR</span>
-              </div>
+            <div class="token-balance-chip" title="NEAR balance">
+              <div class="token-chip-left"><img src="assets/near.png" alt="" class="token-logo-img"><span class="token-chip-label">NEAR</span></div>
               <span class="token-chip-amount" id="sidebarNearBalance">10.00</span>
             </div>
-            <div class="token-balance-chip" title="Test USDT Balance">
-              <div class="token-chip-left">
-                <img src="assets/usdt.png" alt="USDT" class="token-logo-img">
-                <span class="token-chip-label">USDT</span>
-              </div>
+            <div class="token-balance-chip" title="Test USDT balance">
+              <div class="token-chip-left"><img src="assets/usdt.png" alt="" class="token-logo-img"><span class="token-chip-label">Test USDT</span></div>
               <span class="token-chip-amount" id="sidebarUsdtBalance">60.00</span>
             </div>
           </div>
         </div>
+        <div class="sidebar-footnote"><span class="network-indicator"></span><span>NEAR TESTNET</span><span class="version-label">v0.1</span></div>
       </div>
     </aside>
+    <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close navigation" tabindex="-1"></button>
 
-    <!-- Main Panel -->
     <main class="main-panel">
-      <!-- Clean Minimalist Header (All clutter and badges removed) -->
       <header class="top-nav">
         <div class="left-nav">
-          <button class="sidebar-open-btn" id="sidebarOpenBtn" title="Open sidebar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          <button class="sidebar-open-btn" id="sidebarOpenBtn" title="Open sidebar" aria-label="Open sidebar" aria-controls="sidebar" aria-expanded="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
           </button>
-          <div class="brand-wrap">
-            <svg class="mandate-gem brand-gem" viewBox="0 0 48 48" fill="none">
-              <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
-              <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
-              <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
-              <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
-              <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
-              <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
-              <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
-            </svg>
-            <span class="brand-title">Mandate</span>
-          </div>
+          <div class="workspace-breadcrumb"><span>Workspace</span><span class="breadcrumb-separator">/</span><span class="breadcrumb-current">Agent chat</span></div>
+          <a class="mobile-brand brand-wrap" href="/" aria-label="Mandate home"><svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg><span class="brand-title">mandate</span></a>
         </div>
-
-        <div class="right-nav" style="display:flex; align-items:center; gap:8px;">
-          <!-- Faucet Redirect Button with Official NEAR Logo -->
-          <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="header-faucet-btn" id="headerFaucetBtn" title="Claim Testnet NEAR (near-faucet.io)">
-            <img src="assets/near-faucet-logo.svg" alt="NEAR Faucet" class="faucet-btn-icon">
-            <span>Faucet</span>
+        <div class="right-nav">
+          <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="header-faucet-btn" id="headerFaucetBtn" title="Get testnet NEAR">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3s-6 7-6 11a6 6 0 0 0 12 0c0-4-6-11-6-11Z"/><path d="M9 15a3 3 0 0 0 3 3"/></svg>
+            <span>Faucet</span><span class="external-arrow" aria-hidden="true">↗</span>
           </a>
-
-          <!-- Live On-Chain Wallet Connect Badge -->
-          <button class="wallet-badge-btn" id="connectWalletBtn" title="NEAR Testnet Wallet">
-            <span class="wallet-dot" id="walletStatusDot"></span>
-            <span id="walletBtnText">Connect Wallet</span>
+          <button class="wallet-badge-btn" id="connectWalletBtn" title="NEAR testnet wallet"><span class="wallet-dot" id="walletStatusDot"></span><span id="walletBtnText">Connect wallet</span></button>
+          <button class="theme-toggle-btn" id="themeToggleBtn" title="Switch to dark theme" aria-label="Switch to dark theme">
+            <svg class="theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z"/></svg>
+            <svg class="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
           </button>
-
-          <button class="header-link-btn" id="headerAllowlistBtn">Payable Allowlist</button>
-          <button class="header-link-btn" id="headerLedgerBtn">Ledger</button>
         </div>
       </header>
 
-      <!-- Chat Canvas -->
       <div class="chat-container" id="chatContainer">
-        
-        <!-- Clean Hero Screen -->
         <div class="hero-screen" id="heroScreen">
-          <h1 class="hero-title">How can I help you today?</h1>
-          <p class="hero-subtitle">
-            Autonomous blockchain transactions, token swaps, and policy-guaranteed payments on NEAR Testnet.
-          </p>
-
-          <!-- 4 Clean Action Cards -->
-          <div class="suggestions-grid">
-            <div class="suggestion-card" data-prompt="Swap 2 NEAR for Test USDT">
-              <div class="card-icon">
-                <img src="assets/usdt.png" alt="USDT" style="width:24px; height:24px; border-radius:4px; object-fit:contain;">
-              </div>
-              <div class="card-text">
-                <span class="card-title">Swap 2 NEAR for Test USDT</span>
-                <span class="card-desc">Automated NEP-141 token exchange with instant payout</span>
-              </div>
-            </div>
-
-            <div class="suggestion-card" data-prompt="Pay 7 NEAR to zeal.testnet (add to allowlist)">
-              <div class="card-icon">
-                <img src="assets/near.png" alt="NEAR" style="width:24px; height:24px; border-radius:4px; object-fit:contain;">
-              </div>
-              <div class="card-text">
-                <span class="card-title">Pay 7 NEAR to zeal.testnet</span>
-                <span class="card-desc">Policy-verified on-chain transfer with allowlist check</span>
-              </div>
-            </div>
-
-            <div class="suggestion-card" data-prompt="Fund treasury with 10 NEAR">
-              <div class="card-icon">💰</div>
-              <div class="card-text">
-                <span class="card-title">Fund Treasury (+10 NEAR)</span>
-                <span class="card-desc">Allocate spendable balance for autonomous agent actions</span>
-              </div>
-            </div>
-
-            <div class="suggestion-card" data-prompt="Show my payable allowlist">
-              <div class="card-icon">🛡️</div>
-              <div class="card-text">
-                <span class="card-title">View Payable Allowlist</span>
-                <span class="card-desc">Inspect approved recipient addresses & security caps</span>
-              </div>
-            </div>
-          </div>
+          <div class="hero-emblem" aria-hidden="true"><svg class="mandate-mark" viewBox="0 0 48 48"><use href="assets/mandate-mark.svg#mark"/></svg></div>
+          <div class="hero-eyebrow"><span class="terminal-prompt" aria-hidden="true">&gt;_</span> YOUR INTENT, IN MOTION</div>
+          <h1 class="hero-title">A little direction.<br><em>A world of possibility.</em></h1>
+          <p class="hero-subtitle">Move funds, swap tokens, and put your plans in motion.<br> You set the boundaries. Mandate takes it from here.</p>
         </div>
-
-        <!-- Dynamic Message Stream -->
-        <div class="messages-stream" id="messagesStream"></div>
+        <div class="messages-stream" id="messagesStream" role="log" aria-label="Conversation" aria-live="polite"></div>
       </div>
 
-      <!-- Bottom Input Bar -->
       <footer class="input-area">
         <div class="input-wrapper">
           <div class="input-box">
-            <textarea 
-              id="promptInput" 
-              placeholder="Ask Mandate, or type: 'Pay 7 NEAR to zeal.testnet (add to allowlist)'..." 
-              rows="1"
-            ></textarea>
-
-            <button class="send-btn" id="sendBtn" title="Send command">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="12" y1="19" x2="12" y2="5"></line>
-                <polyline points="5 12 12 5 19 12"></polyline>
-              </svg>
-            </button>
+            <textarea id="promptInput" placeholder="What would you like to set in motion?" rows="2" aria-label="Message Mandate"></textarea>
+            <div class="composer-toolbar">
+              <div class="composer-agent"><svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg><span>Mandate agent</span><span class="composer-network">NEAR Testnet</span></div>
+              <div class="composer-send"><span class="enter-hint"><kbd>↵</kbd> to send</span><button class="send-btn" id="sendBtn" title="Send message" aria-label="Send message"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
+            </div>
           </div>
-          <div class="input-disclaimer">
-            Mandate enforces user-defined spending limits · Deliverables verified before payment
+          <div class="welcome-suggestions">
+            <div class="suggestions-label">A place to start <span aria-hidden="true">↙</span></div>
+            <div class="suggestions-grid">
+              <button class="suggestion-card" data-prompt="Swap 2 NEAR for Test USDT"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg></span><span class="card-text"><span class="card-title">Swap tokens</span><span class="card-desc">NEAR → Test USDT</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
+              <button class="suggestion-card" data-prompt="Pay 7 NEAR to zeal.testnet (add to allowlist)"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m5 19 14-14M5 5h14v14"/></svg></span><span class="card-text"><span class="card-title">Make a payment</span><span class="card-desc">7 NEAR to zeal.testnet</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
+              <button class="suggestion-card" data-prompt="Fund treasury with 10 NEAR"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M16 13v4m-2-2h4"/></svg></span><span class="card-text"><span class="card-title">Fund treasury</span><span class="card-desc">Give your agent 10 NEAR</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
+              <button class="suggestion-card" data-prompt="Show my payable allowlist"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7z"/><path d="m8 12 3 3 5-6"/></svg></span><span class="card-text"><span class="card-title">Manage payees</span><span class="card-desc">Your approved recipients</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
+            </div>
           </div>
+          <div class="input-disclaimer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7z"/><path d="m8 12 3 3 5-6"/></svg><span>Your limits. Every transaction.</span><span class="disclaimer-separator">·</span><span>Powered by NEAR</span></div>
         </div>
       </footer>
+      <div class="workspace-footnote" aria-hidden="true"><span>DESIGNED FOR INTENT.</span><span>BUILT FOR ACTION. ↗</span></div>
     </main>
-
   </div>
 
   <!-- TAB MODAL: Payable Allowlist -->
@@ -239,8 +174,8 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
-          <h2>Payable Allowlist</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
+          <h2>Approved payees</h2>
         </div>
         <button class="modal-close" id="closeAllowlistModal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -269,8 +204,8 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-          <h2>Fund Treasury</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          <h2>Fund your treasury</h2>
         </div>
         <button class="modal-close" id="closeFundModal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -278,13 +213,13 @@
       </div>
 
       <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:12px;">
-        <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); border-radius:8px; padding:10px 12px; font-size:12.5px; color:#cbd5e1; line-height:1.5;">
-          Treasury Account: <a href="https://testnet.nearblocks.io/address/mandate-generis-treasury.testnet" target="_blank" rel="noopener noreferrer" style="font-family:var(--font-mono); color:#10a37f; text-decoration:underline;">mandate-generis-treasury.testnet</a>
-          <br>Live On-Chain Balance: <strong id="liveOnchainBalanceText" style="color:#fff;">8.16 NEAR</strong>
+        <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:10px 12px; font-size:12.5px; color:var(--text-secondary); line-height:1.5;">
+          Treasury Account: <a href="https://testnet.nearblocks.io/address/mandate-generis-treasury.testnet" target="_blank" rel="noopener noreferrer" style="font-family:var(--font-mono); color:var(--success); text-decoration:underline;">mandate-generis-treasury.testnet</a>
+          <br>Live On-Chain Balance: <strong id="liveOnchainBalanceText" style="color:var(--text-primary);">8.16 NEAR</strong>
         </div>
 
         <div>
-          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Option A: On-Chain Transfer via MyNearWallet</label>
+          <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Option A: On-Chain Transfer via MyNearWallet</label>
           <div style="display:flex; gap:8px;">
             <button class="btn-subtle" onclick="sendOnchainNear(5)">Send 5 NEAR ↗</button>
             <button class="btn-subtle" onclick="sendOnchainNear(10)">Send 10 NEAR ↗</button>
@@ -293,7 +228,7 @@
         </div>
 
         <div style="border-top:1px solid var(--border-subtle); padding-top:10px;">
-          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Option B: Custom Deposit / Record Tx</label>
+          <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Option B: Custom Deposit / Record Tx</label>
           <div style="display:flex; gap:8px;">
             <input type="number" id="customFundInput" placeholder="Amount in NEAR" class="form-control" step="1" min="1">
             <button class="btn-primary" id="confirmFundBtn">Deposit Funds</button>
@@ -313,8 +248,8 @@
     <div class="modal-card wide">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-          <h2>Settlement Ledger</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+          <h2>Settlement ledger</h2>
         </div>
         <button class="modal-close" id="closeLedgerModal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -348,7 +283,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
           <h2>Mandate Accounts</h2>
         </div>
         <button class="modal-close" id="closeAccountModal">
@@ -358,33 +293,33 @@
 
       <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:16px;">
         <!-- Active User Details -->
-        <div style="background: rgba(16, 163, 127, 0.08); border: 1px solid rgba(16, 163, 127, 0.25); border-radius: 10px; padding: 12px 14px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="background: var(--success-soft); border: 1px solid var(--success-border); border-radius: 10px; padding: 12px 14px; display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <div style="font-size:11px; text-transform:uppercase; color:#94a3b8; font-weight:600; letter-spacing:0.5px;">Active Mandate Profile</div>
-            <div style="font-size:14px; font-weight:600; color:#fff; font-family:var(--font-mono);" id="modalActiveAccountName">generis.testnet</div>
+            <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); font-weight:600; letter-spacing:0.5px;">Active Mandate Profile</div>
+            <div style="font-size:14px; font-weight:600; color:var(--text-primary); font-family:var(--font-mono);" id="modalActiveAccountName">generis.testnet</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px; text-transform:uppercase; color:#94a3b8; font-weight:600;">Isolated Balance</div>
-            <div style="font-size:15px; font-weight:700; color:#10a37f;" id="modalActiveAccountBal">10.00 NEAR</div>
+            <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); font-weight:600;">Isolated Balance</div>
+            <div style="font-size:15px; font-weight:700; color:var(--success);" id="modalActiveAccountBal">10.00 NEAR</div>
           </div>
         </div>
 
         <!-- Create New Account -->
         <div>
-          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Create New Mandate Account</label>
+          <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Create New Mandate Account</label>
           <div style="display:flex; gap:8px;">
             <input type="text" id="newAccountIdInput" placeholder="Account ID (e.g. acme-ops.testnet)" class="form-control" style="font-family:var(--font-mono); font-size:13px;">
             <button class="btn-primary" id="createAccountBtn" style="white-space:nowrap;">Create Account</button>
           </div>
           <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size:11.5px; color:#8e8e8e;">Each account maintains isolated treasury, allowlist, and chat history.</span>
+            <span style="font-size:11.5px; color:var(--text-muted);">Each account maintains isolated treasury, allowlist, and chat history.</span>
             <button class="btn-subtle" id="generateRandomAccountBtn" style="font-size:11.5px; padding:3px 8px;">🎲 Generate ID</button>
           </div>
         </div>
 
         <!-- Switch Account List -->
         <div>
-          <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Switch Active Account</label>
+          <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Switch Active Account</label>
           <div id="accountsListContainer" style="max-height: 160px; overflow-y: auto;">
             <!-- Populated via /api/accounts -->
           </div>
@@ -404,8 +339,8 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
-          <h2>Connect NEAR Wallet</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+          <h2>Connect your wallet</h2>
         </div>
         <button class="modal-close" id="closeWalletModal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -413,21 +348,21 @@
       </div>
 
       <div style="padding: 16px 20px; display:flex; flex-direction:column; gap:14px;">
-        <p style="font-size:13px; color:#94a3b8; line-height:1.5;">
+        <p style="font-size:13px; color:var(--text-muted); line-height:1.5;">
           Connect your NEAR testnet wallet to sign real transactions and fund the treasury directly on-chain.
         </p>
 
         <!-- Connected State Card -->
-        <div id="walletConnectedCard" style="display:none; background:rgba(16,163,127,0.08); border:1px solid rgba(16,163,127,0.3); border-radius:10px; padding:14px;">
+        <div id="walletConnectedCard" style="display:none; background:var(--success-soft); border:1px solid var(--success-border); border-radius:10px; padding:14px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
-              <div style="font-size:11px; text-transform:uppercase; color:#10a37f; font-weight:700;">Wallet Connected</div>
-              <div style="font-size:14px; font-weight:600; color:#fff; font-family:var(--font-mono);" id="modalConnectedAccount">epochals-sphere.testnet</div>
+              <div style="font-size:11px; text-transform:uppercase; color:var(--success); font-weight:700;">Wallet Connected</div>
+              <div style="font-size:14px; font-weight:600; color:var(--text-primary); font-family:var(--font-mono);" id="modalConnectedAccount">epochals-sphere.testnet</div>
             </div>
-            <button class="btn-subtle" id="disconnectWalletBtn" style="color:#ef4444; border-color:rgba(239,68,68,0.3);">Disconnect</button>
+            <button class="btn-subtle" id="disconnectWalletBtn" style="color:var(--danger); border-color:var(--danger-border);">Disconnect</button>
           </div>
-          <div style="margin-top:8px; font-size:12.5px; color:#cbd5e1;">
-            Live Balance: <strong style="color:#10a37f;" id="modalConnectedBalance">Loading...</strong>
+          <div style="margin-top:8px; font-size:12.5px; color:var(--text-secondary);">
+            Live Balance: <strong style="color:var(--success);" id="modalConnectedBalance">Loading...</strong>
           </div>
         </div>
 
@@ -436,13 +371,13 @@
           <!-- Faucet Access Card (near-faucet.io) -->
           <div class="wallet-faucet-card">
             <div style="display:flex; align-items:center; gap:10px;">
-              <img src="assets/near-faucet-logo.svg" alt="NEAR Faucet" style="width:28px; height:28px; border-radius:50%; box-shadow:0 0 10px rgba(168, 85, 247, 0.4);">
+              <img src="assets/near-faucet-logo.svg" alt="NEAR Faucet" style="width:28px; height:28px; border-radius:50%; box-shadow:0 0 10px var(--border-subtle);">
               <div>
-                <div style="font-size:13px; font-weight:600; color:#fff;">Need Testnet NEAR?</div>
-                <div style="font-size:11px; color:#94a3b8;">Claim testnet NEAR into your connected wallet to power the Mandate Treasury.</div>
+                <div style="font-size:13px; font-weight:600; color:var(--text-primary);">Need Testnet NEAR?</div>
+                <div style="font-size:11px; color:var(--text-muted);">Claim testnet NEAR into your connected wallet to power the Mandate Treasury.</div>
               </div>
             </div>
-            <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="btn-subtle" style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; text-decoration:none; padding:6px 12px; color:#c084fc; border-color:rgba(168,85,247,0.4); border-radius:6px; white-space:nowrap;">
+            <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="btn-subtle" style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; text-decoration:none; padding:6px 12px; color:var(--accent); border-color:var(--border-subtle); border-radius:6px; white-space:nowrap;">
               Faucet ↗
             </a>
           </div>
@@ -452,8 +387,8 @@
             <div style="display:flex; align-items:center; gap:12px;">
               <div class="wallet-option-icon" style="background:#000; color:#00ec97;">N</div>
               <div>
-                <div style="font-size:13.5px; font-weight:600; color:#fff;">MyNearWallet (Testnet)</div>
-                <div style="font-size:11.5px; color:#8e8e8e;">Official web wallet for NEAR testnet</div>
+                <div style="font-size:13.5px; font-weight:600; color:var(--text-primary);">MyNearWallet (Testnet)</div>
+                <div style="font-size:11.5px; color:var(--text-muted);">Official web wallet for NEAR testnet</div>
               </div>
             </div>
             <span class="btn-mini-connect">Connect ↗</span>
@@ -462,10 +397,10 @@
           <!-- Meteor / Injected Wallet -->
           <div class="wallet-option-item" id="connectMeteorWalletBtn">
             <div style="display:flex; align-items:center; gap:12px;">
-              <div class="wallet-option-icon" style="background:#5f259f; color:#fff;">☄</div>
+              <div class="wallet-option-icon" style="background:#5f259f; color:#fffaf5;">☄</div>
               <div>
-                <div style="font-size:13.5px; font-weight:600; color:#fff;">Meteor / Here Wallet</div>
-                <div style="font-size:11.5px; color:#8e8e8e;">Browser extension or mobile wallet</div>
+                <div style="font-size:13.5px; font-weight:600; color:var(--text-primary);">Meteor / Here Wallet</div>
+                <div style="font-size:11.5px; color:var(--text-muted);">Browser extension or mobile wallet</div>
               </div>
             </div>
             <span class="btn-mini-connect">Connect</span>
@@ -473,7 +408,7 @@
 
           <!-- Direct Testnet Account Link -->
           <div style="border-top:1px solid var(--border-subtle); padding-top:12px; margin-top:4px;">
-            <label style="font-size:12.5px; font-weight:600; color:#e2e8f0; display:block; margin-bottom:6px;">Or Link Testnet Account</label>
+            <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Or Link Testnet Account</label>
             <div style="display:flex; gap:8px;">
               <input type="text" id="manualWalletInput" placeholder="e.g. epochals-sphere.testnet" class="form-control" style="font-family:var(--font-mono); font-size:13px;">
               <button class="btn-primary" id="confirmManualWalletBtn" style="white-space:nowrap;">Link</button>
@@ -491,11 +426,11 @@
 
   <!-- TAB MODAL: Agent Swap & Payout on NEAR Testnet -->
   <div class="modal-backdrop" id="swapModal">
-    <div class="modal-card wide" style="max-width: 860px; max-height: 90vh; display:flex; flex-direction:column;">
+    <div class="modal-card wide">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-          <h2>Agent Swap & Payout · NEAR Testnet</h2>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+          <h2>Swap &amp; payout</h2>
         </div>
         <button class="modal-close" id="closeSwapModal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -504,19 +439,19 @@
 
       <div style="overflow-y:auto; padding: 18px 24px; display:flex; flex-direction:column; gap:16px;">
         <!-- Prominent Testnet Asset Notice -->
-        <div style="background:rgba(234, 179, 8, 0.08); border:1px solid rgba(234, 179, 8, 0.3); border-radius:10px; padding:12px 16px; font-size:12.5px; color:#fde047; line-height:1.5;">
-          <strong>⚠️ DEVELOPMENT ASSET NOTICE:</strong> Mandate Test USDT (<code>usdt.fakes.testnet</code>) is a testnet development asset and is not issued by Tether. It has no real monetary value and is not redeemable for US dollars.
+        <div style="background:var(--warning-soft); border:1px solid var(--warning-border); border-radius:10px; padding:12px 16px; font-size:12.5px; color:var(--warning); line-height:1.5;">
+          <strong>Testnet asset</strong> Mandate Test USDT (<code>usdt.fakes.testnet</code>) is a testnet development asset and is not issued by Tether. It has no real monetary value and is not redeemable for US dollars.
         </div>
 
         <!-- Main Swap Container: Grid of Form & Safeguards -->
-        <div style="display:grid; grid-template-columns: 1.2fr 0.8fr; gap:18px;">
+        <div class="swap-layout">
           <!-- Left: Interactive Swap Form -->
-          <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:12px;">
+          <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:12px;">
             <div>
-              <label style="font-size:12px; color:#94a3b8; font-weight:600; text-transform:uppercase;">You Allocate (NEAR)</label>
+              <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">You Allocate (NEAR)</label>
               <div style="display:flex; gap:8px; margin-top:6px;">
                 <input type="number" id="swapInputNear" placeholder="Amount in NEAR" class="form-control" step="0.1" min="0.1" max="20" value="1.0" style="font-size:15px; font-weight:600; font-family:var(--font-mono);">
-                <div style="display:flex; align-items:center; gap:6px; background:#1e1e1e; padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:#fff; font-size:13px;">
+                <div style="display:flex; align-items:center; gap:6px; background:var(--bg-inset); padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:var(--text-primary); font-size:13px;">
     <img src="assets/near.png" alt="NEAR" style="width:16px; height:16px; border-radius:3px;"> NEAR
   </div>
               </div>
@@ -529,17 +464,17 @@
             </div>
 
             <!-- Rate Pill -->
-            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(16,163,127,0.06); border:1px solid rgba(16,163,127,0.2); border-radius:8px; padding:8px 12px; font-size:12px; color:#10a37f;">
+            <div style="display:flex; justify-content:space-between; align-items:center; background:var(--success-soft); border:1px solid var(--success-border); border-radius:8px; padding:8px 12px; font-size:12px; color:var(--success);">
               <span>Demonstration Rate: <strong>1 NEAR = 5.00 Test USDT</strong></span>
               <span style="font-size:11px; opacity:0.8;">Fixed Demo Price</span>
             </div>
 
             <!-- Estimated Output -->
             <div>
-              <label style="font-size:12px; color:#94a3b8; font-weight:600; text-transform:uppercase;">Agent Receives & Pays Out</label>
+              <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Agent Receives & Pays Out</label>
               <div style="display:flex; gap:8px; margin-top:6px;">
-                <input type="text" id="swapOutputUsdt" class="form-control" readonly value="5.00" style="font-size:15px; font-weight:700; color:#10a37f; font-family:var(--font-mono); background:#1e1e1e;">
-                <div style="display:flex; align-items:center; gap:6px; background:#1e1e1e; padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:#10a37f; font-size:13px;">
+                <input type="text" id="swapOutputUsdt" class="form-control" readonly value="5.00" style="font-size:15px; font-weight:700; color:var(--success); font-family:var(--font-mono); background:var(--bg-inset);">
+                <div style="display:flex; align-items:center; gap:6px; background:var(--bg-inset); padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:var(--success); font-size:13px;">
     <img src="assets/usdt.png" alt="USDT" style="width:16px; height:16px; border-radius:3px;"> Test USDT
   </div>
               </div>
@@ -548,20 +483,20 @@
             <!-- Destination Wallet -->
             <div>
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <label style="font-size:12px; color:#94a3b8; font-weight:600; text-transform:uppercase;">Destination Wallet (Testnet)</label>
-                <span id="useConnectedWalletBtn" style="font-size:11px; color:#10a37f; cursor:pointer; text-decoration:underline;">Use Connected Wallet</span>
+                <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Destination Wallet (Testnet)</label>
+                <span id="useConnectedWalletBtn" style="font-size:11px; color:var(--success); cursor:pointer; text-decoration:underline;">Use Connected Wallet</span>
               </div>
               <input type="text" id="swapDestinationWallet" placeholder="e.g. your-account.testnet" class="form-control" style="margin-top:6px; font-family:var(--font-mono); font-size:13px;">
             </div>
 
             <!-- Minimum Output (Slippage) -->
             <div>
-              <label style="font-size:12px; color:#94a3b8; font-weight:600; text-transform:uppercase;">Minimum Acceptable Output</label>
+              <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Minimum Acceptable Output</label>
               <input type="number" id="swapMinOutput" class="form-control" step="0.01" value="4.90" style="margin-top:6px; font-family:var(--font-mono); font-size:13px;">
             </div>
 
             <!-- Authorization Checkbox -->
-            <div style="margin-top:4px; display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#cbd5e1;">
+            <div style="margin-top:4px; display:flex; align-items:flex-start; gap:8px; font-size:12px; color:var(--text-secondary);">
               <input type="checkbox" id="swapAuthCheck" style="margin-top:2px;">
               <label for="swapAuthCheck" style="cursor:pointer; line-height:1.4;">
                 I explicitly authorize the Mandate agent to exchange allocated NEAR for Mandate Test USDT and disburse directly to destination.
@@ -576,35 +511,35 @@
 
           <!-- Right: Safeguards & Metrics -->
           <div style="display:flex; flex-direction:column; gap:12px;">
-            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:12px; padding:16px;">
-              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:10px;">Security Safeguards</div>
-              <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px; color:#cbd5e1;">
+            <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:12px; padding:16px;">
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px;">Security Safeguards</div>
+              <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px; color:var(--text-secondary);">
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:#8e8e8e;">Agent Spending Cap:</span>
-                  <strong style="color:#fff;">20.00 NEAR max</strong>
+                  <span style="color:var(--text-muted);">Agent Spending Cap:</span>
+                  <strong style="color:var(--text-primary);">20.00 NEAR max</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:#8e8e8e;">Your Available Quota:</span>
-                  <strong style="color:#10a37f;" id="swapUserQuotaText">Loading...</strong>
+                  <span style="color:var(--text-muted);">Your Available Quota:</span>
+                  <strong style="color:var(--success);" id="swapUserQuotaText">Loading...</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:#8e8e8e;">Token Liquidity Pool:</span>
-                  <strong style="color:#10a37f;" id="swapPoolLiquidityText">500.00 USDT</strong>
+                  <span style="color:var(--text-muted);">Token Liquidity Pool:</span>
+                  <strong style="color:var(--success);" id="swapPoolLiquidityText">500.00 USDT</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:#8e8e8e;">Contract Standard:</span>
-                  <span style="font-family:var(--font-mono); font-size:11.5px; color:#fff;">NEP-141 / NEP-145</span>
+                  <span style="color:var(--text-muted);">Contract Standard:</span>
+                  <span style="font-family:var(--font-mono); font-size:11.5px; color:var(--text-primary);">NEP-141 / NEP-145</span>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:#8e8e8e;">Token Contract:</span>
-                  <a href="https://testnet.nearblocks.io/address/usdt.fakes.testnet" target="_blank" rel="noopener noreferrer" style="color:#10a37f; font-family:var(--font-mono); font-size:11.5px; text-decoration:underline;">usdt.fakes.testnet</a>
+                  <span style="color:var(--text-muted);">Token Contract:</span>
+                  <a href="https://testnet.nearblocks.io/address/usdt.fakes.testnet" target="_blank" rel="noopener noreferrer" style="color:var(--success); font-family:var(--font-mono); font-size:11.5px; text-decoration:underline;">usdt.fakes.testnet</a>
                 </div>
               </div>
             </div>
 
             <!-- Multi-Step State Stepper -->
-            <div id="swapStepperCard" style="display:none; background:rgba(255,255,255,0.02); border:1px solid var(--border-subtle); border-radius:12px; padding:16px;">
-              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:10px;">Execution Progress</div>
+            <div id="swapStepperCard" style="display:none; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:12px; padding:16px;">
+              <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px;">Execution Progress</div>
               <div id="swapStep1" class="swap-step-item active">
                 <span class="step-dot"></span>
                 <span class="step-label">1. Validating Authorization & Quota</span>
@@ -628,7 +563,7 @@
 
         <!-- Swap & Payout History Table -->
         <div style="margin-top:6px;">
-          <div style="font-size:13px; font-weight:600; color:#fff; margin-bottom:8px;">Swap & Payout Audit Trail</div>
+          <div style="font-size:13px; font-weight:600; color:var(--text-primary); margin-bottom:8px;">Swap & Payout Audit Trail</div>
           <div class="table-responsive" style="max-height: 200px; overflow-y:auto; border:1px solid var(--border-subtle); border-radius:8px;">
             <table class="ledger-table">
               <thead>
@@ -653,7 +588,7 @@
   </div>
 
   <!-- Toast -->
-  <div class="toast-notify" id="toastNotify">Copied to clipboard</div>
+  <div class="toast-notify" id="toastNotify" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>

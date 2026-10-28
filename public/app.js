@@ -156,7 +156,7 @@ function updateWalletUI() {
       connectWalletBtn.classList.remove('connected');
     }
     if (walletStatusDot) walletStatusDot.classList.remove('online');
-    if (walletBtnText) walletBtnText.textContent = 'Connect Wallet';
+    if (walletBtnText) walletBtnText.textContent = 'Connect wallet';
     if (walletConnectedCard) walletConnectedCard.style.display = 'none';
     if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'flex';
     if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'none';
@@ -382,16 +382,16 @@ async function loadAccountsList() {
       accountsListContainer.innerHTML = data.users.map(u => {
         const isActive = u.accountId.toLowerCase() === currentAccount.toLowerCase();
         const deleteBtn = !isActive
-          ? `<button class="btn-subtle" onclick="deleteAccount(event, '${escapeHtml(u.accountId)}')" style="color:#ef4444; padding:2px 8px; font-size:11px; margin-left:8px;" title="Remove Account">✕</button>`
+          ? `<button class="btn-subtle" onclick="deleteAccount(event, '${escapeHtml(u.accountId)}')" style="color:var(--danger); padding:2px 8px; font-size:11px; margin-left:8px;" title="Remove Account">✕</button>`
           : '';
         return `
           <div class="account-card-item ${isActive ? 'active' : ''}" onclick="switchAccount('${escapeHtml(u.accountId)}')">
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-size:14px;">${isActive ? '🟢' : '⚪'}</span>
-              <span style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:${isActive ? '#10a37f' : '#fff'};">${escapeHtml(u.accountId)}</span>
+              <span style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:${isActive ? 'var(--success)' : 'var(--text-primary)'};">${escapeHtml(u.accountId)}</span>
             </div>
             <div style="display:flex; align-items:center;">
-              <span style="font-size:12px; color:#94a3b8; font-weight:500;">${Number(u.balanceNear).toFixed(2)} NEAR</span>
+              <span style="font-size:12px; color:var(--text-muted); font-weight:500;">${Number(u.balanceNear).toFixed(2)} NEAR</span>
               ${deleteBtn}
             </div>
           </div>
@@ -399,7 +399,7 @@ async function loadAccountsList() {
       }).join('');
     }
   } catch (err) {
-    accountsListContainer.innerHTML = '<div style="font-size:12px; color:#ef4444;">Failed to load accounts.</div>';
+    accountsListContainer.innerHTML = '<div style="font-size:12px; color:var(--danger);">Failed to load accounts.</div>';
   }
 }
 
@@ -554,9 +554,9 @@ async function loadLedger() {
     if (!records || records.length === 0) {
       ledgerTableBody.innerHTML = `
         <tr>
-          <td colspan="7" class="empty-td" style="padding:24px; text-align:center; color:#94a3b8;">
+          <td colspan="7" class="empty-td" style="padding:24px; text-align:center; color:var(--text-muted);">
             No settlement disbursements recorded for <code>${escapeHtml(currentAccount)}</code> yet.<br>
-            <span style="font-size:12px; color:#64748b; margin-top:4px; display:inline-block;">
+            <span style="font-size:12px; color:var(--text-muted); margin-top:4px; display:inline-block;">
               Run an autonomous mandate or send NEAR to see live verified settlements.
             </span>
           </td>
@@ -572,7 +572,7 @@ async function loadLedger() {
       
       const explorerLink = r.txHash
         ? `<a href="https://testnet.nearblocks.io/txns/${r.txHash}" target="_blank" rel="noopener noreferrer" class="link-mono">${r.txHash.slice(0, 10)}...</a>`
-        : '<span style="color:#64748b;">-</span>';
+        : '<span style="color:var(--text-muted);">-</span>';
 
       const amountDisplay = r.amountNear
         ? r.amountDollars + ' (' + r.amountNear + ' NEAR)'
@@ -581,14 +581,14 @@ async function loadLedger() {
       return `
         <tr>
           <td><code class="tx-id">#${r.id}</code></td>
-          <td style="font-size:12.5px; color:#cbd5e1; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.mandateId || r.taskId || '')}">
+          <td style="font-size:12.5px; color:var(--text-secondary); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.mandateId || r.taskId || '')}">
             ${escapeHtml(r.mandateId || r.taskId || 'Direct Transfer')}
           </td>
           <td><code class="link-mono">${escapeHtml(r.recipient)}</code></td>
-          <td style="font-weight:600; color:#fff;">${escapeHtml(amountDisplay)}</td>
+          <td style="font-weight:600; color:var(--text-primary);">${escapeHtml(amountDisplay)}</td>
           <td>${statusBadge}</td>
           <td>${explorerLink}</td>
-          <td style="font-size:12px; color:#94a3b8;">${escapeHtml(r.note || '-')}</td>
+          <td style="font-size:12px; color:var(--text-muted);">${escapeHtml(r.note || '-')}</td>
         </tr>
       `;
     }).join('');
@@ -604,7 +604,7 @@ async function loadConversationsList() {
     const res = await fetch('/api/conversations', { headers: getApiHeaders() });
     const convos = await res.json();
     if (!convos || convos.length === 0) {
-      conversationsListContainer.innerHTML = '<div style="font-size:12px; color:#64748b; padding:6px 10px;">No saved conversations.</div>';
+      conversationsListContainer.innerHTML = '<div class="conversations-empty"><span>A fresh start.</span>Your conversations will live here.</div>';
       return;
     }
     conversationsListContainer.innerHTML = convos.map(c => {
@@ -796,35 +796,19 @@ function appendUserMessage(text, record = true) {
   messagesStream.appendChild(row);
 }
 
-// Glowing Minimalist Gem Loading Indicator
+// Mandate loading indicator
 function appendAssistantLoading(id) {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   row.id = id;
   row.innerHTML = `
     <div class="assistant-avatar">
-      <svg class="brand-gem" viewBox="0 0 48 48" fill="none" style="width:18px; height:18px;">
-        <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
-        <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
-        <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
-        <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
-        <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
-        <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
-        <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
-      </svg>
+      <svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg>
     </div>
     <div class="message-content">
-      <div class="gem-loader-wrap">
-        <svg class="mandate-gem-anim" viewBox="0 0 48 48" fill="none">
-          <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
-          <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
-          <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
-          <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
-          <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
-          <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
-          <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
-        </svg>
-        <span class="gem-pulse-status">Processing mandate with specialized agents...</span>
+      <div class="mandate-loader" role="status">
+        <span class="loader-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>Working on your mandate…</span>
       </div>
     </div>
   `;
@@ -840,30 +824,22 @@ function renderAssistantResponse(id, data, record = true) {
   const el = document.getElementById(id);
   if (!el) return;
 
-  const gemAvatar = `
+  const mandateAvatar = `
     <div class="assistant-avatar">
-      <svg class="brand-gem" viewBox="0 0 48 48" fill="none" style="width:18px; height:18px;">
-        <polygon class="gem-facet f-table" points="16,8 32,8 38,18 10,18" />
-        <polygon class="gem-facet f-left" points="8,18 16,8 10,18" />
-        <polygon class="gem-facet f-right" points="32,8 40,18 38,18" />
-        <polygon class="gem-facet f-center-tri" points="10,18 38,18 24,40" />
-        <polygon class="gem-facet f-left-pav" points="8,18 10,18 24,40" />
-        <polygon class="gem-facet f-right-pav" points="38,18 40,18 24,40" />
-        <polygon class="gem-outline" points="16,8 32,8 40,18 24,40 8,18" />
-      </svg>
+      <svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg>
     </div>
   `;
 
   // 1. Payment Confirmed (Deduction)
   if (data.type === 'payment_confirmed') {
     el.innerHTML = `
-      ${gemAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <p>${escapeHtml(data.message)}</p>
         <div class="receipt-card">
           <div class="receipt-top">
             <span class="receipt-badge-confirmed">ON-CHAIN SETTLEMENT CONFIRMED</span>
-            <span style="font-size:12px; color:#8e8e8e;">NEAR Testnet</span>
+            <span style="font-size:12px; color:var(--text-muted);">NEAR Testnet</span>
           </div>
           <div class="receipt-amount-row">
             <span>${escapeHtml(data.amountNear)}</span>
@@ -876,7 +852,7 @@ function renderAssistantResponse(id, data, record = true) {
             </div>
             <div class="receipt-meta-row">
               <span>Account:</span>
-              <strong style="color:#10a37f;">${escapeHtml(currentAccount)}</strong>
+              <strong style="color:var(--success);">${escapeHtml(currentAccount)}</strong>
             </div>
             <div class="receipt-meta-row">
               <span>Transaction Hash:</span>
@@ -884,7 +860,7 @@ function renderAssistantResponse(id, data, record = true) {
             </div>
             <div class="receipt-meta-row">
               <span>Explorer Receipt:</span>
-              <a href="${data.explorerUrl || '#'}" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline;">View on NearBlocks ↗</a>
+              <a href="${data.explorerUrl || '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline;">View on NearBlocks ↗</a>
             </div>
           </div>
         </div>
@@ -897,7 +873,7 @@ function renderAssistantResponse(id, data, record = true) {
   // 2. Treasury Funded
   if (data.type === 'treasury_funded') {
     el.innerHTML = `
-      ${gemAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <div class="receipt-card">
           <div class="receipt-top">
@@ -910,7 +886,7 @@ function renderAssistantResponse(id, data, record = true) {
           <div class="receipt-meta">
             <div class="receipt-meta-row">
               <span>Target Account:</span>
-              <strong style="color:#10a37f;">${escapeHtml(currentAccount)}</strong>
+              <strong style="color:var(--success);">${escapeHtml(currentAccount)}</strong>
             </div>
             <div class="receipt-meta-row">
               <span>New Available Balance:</span>
@@ -929,7 +905,7 @@ function renderAssistantResponse(id, data, record = true) {
     const rows = data.allowlist.map(a => `
       <tr>
         <td><strong>${escapeHtml(a.accountId)}</strong></td>
-        <td style="color:#8e8e8e;">${escapeHtml(a.label || 'Approved')}</td>
+        <td style="color:var(--text-muted);">${escapeHtml(a.label || 'Approved')}</td>
         <td>
           <button class="btn-mini-pay" onclick="prefillPayment('${escapeHtml(a.accountId)}')">Pay</button>
         </td>
@@ -937,7 +913,7 @@ function renderAssistantResponse(id, data, record = true) {
     `).join('');
 
     el.innerHTML = `
-      ${gemAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <p>${escapeHtml(data.message)}</p>
         <div class="receipt-card">
@@ -957,7 +933,7 @@ function renderAssistantResponse(id, data, record = true) {
   if (data.type === 'greeting' || data.type === 'text' || data.type === 'allowlist_warning' || data.type === 'security_notice' || data.type === 'payment_failed') {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     el.innerHTML = `
-      ${gemAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(data.message)}</div>
       </div>
@@ -970,94 +946,94 @@ function renderAssistantResponse(id, data, record = true) {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     const res = data.mandateResult;
     const txLink = res.payout && res.payout.txHash
-      ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
+      ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
       : null;
 
     const delegationRows = res.delegation.map(d => `
       <div style="display:flex; align-items:flex-start; gap:8px;">
-        <span style="color:#38bdf8; font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
-        <span style="color:#cbd5e1; flex:1;">${escapeHtml(d.description)}</span>
-        <code style="font-size:11px; color:#64748b; font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
+        <span style="color:var(--accent); font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
+        <span style="color:var(--text-secondary); flex:1;">${escapeHtml(d.description)}</span>
+        <code style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
       </div>
     `).join('');
 
     const attacks = (res.attackSimulation && res.attackSimulation.length > 0) ? `
-      <div style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:12px;">
-        <div style="font-size:12px; font-weight:600; color:#ef4444; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">
+      <div style="background:var(--danger-soft); border:1px solid var(--danger-border); border-radius:8px; padding:12px;">
+        <div style="font-size:12px; font-weight:600; color:var(--danger); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">
           Enforced Restrictions & Guardrails (Intercepted Actions)
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
           ${res.attackSimulation.map(att => `
-            <div style="background:rgba(239,68,68,0.1); border-left:3px solid #ef4444; padding:8px 10px; border-radius:4px;">
+            <div style="background:var(--danger-soft); border-left:3px solid var(--danger); padding:8px 10px; border-radius:4px;">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:600; color:#fca5a5;">${escapeHtml(att.attempt)}</span>
-                <span style="color:#ef4444; font-weight:700; font-size:11px;">🛑 ${att.status}</span>
+                <span style="font-weight:600; color:var(--danger);">${escapeHtml(att.attempt)}</span>
+                <span style="color:var(--danger); font-weight:700; font-size:11px;">🛑 ${att.status}</span>
               </div>
-              <ul style="margin:4px 0 0 16px; padding:0; color:#f87171; font-size:11.5px; line-height:1.4;">
+              <ul style="margin:4px 0 0 16px; padding:0; color:var(--danger); font-size:11.5px; line-height:1.4;">
                 ${att.reasons.map(r => `<li>${escapeHtml(r.message)}</li>`).join('')}
               </ul>
             </div>
           `).join('')}
         </div>
-        <div style="font-size:11.5px; color:#94a3b8; margin-top:8px; font-style:italic;">
+        <div style="font-size:11.5px; color:var(--text-muted); margin-top:8px; font-style:italic;">
           The agents performed the research autonomously within their permissions, while restricted purchase actions remained strictly under your control.
         </div>
       </div>
     ` : '';
 
     el.innerHTML = `
-      ${gemAvatar}
+      ${mandateAvatar}
       <div class="message-content" style="max-width:100%;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <div style="font-size:15px; font-weight:600; color:#fff;">
+          <div style="font-size:15px; font-weight:600; color:var(--text-primary);">
             Autonomous Mandate Executed · Spending Guardrails Enforced
           </div>
-          <span style="font-size:11px; color:#10a37f; background:rgba(16,163,127,0.12); padding:2px 8px; border-radius:6px; font-weight:600;">
+          <span style="font-size:11px; color:var(--success); background:var(--success-soft); padding:2px 8px; border-radius:6px; font-weight:600;">
             ${res.aiModelUsed ? escapeHtml(res.aiModelUsed) : 'OpenAI Agent Pipeline'}
           </span>
         </div>
 
         <!-- 1. Mandate Policy Card -->
-        <div class="receipt-card" style="margin-bottom:12px; background:#111622; border-color:#1e293b;">
+        <div class="receipt-card" style="margin-bottom:12px; background:var(--bg-card); border-color:var(--border-subtle);">
           <div class="receipt-top">
-            <span style="font-weight:600; color:#f8fafc; font-size:13.5px;">${escapeHtml(res.mandate.goal)}</span>
-            <span class="receipt-badge-confirmed" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">ACTIVE</span>
+            <span style="font-weight:600; color:var(--text-primary); font-size:13.5px;">${escapeHtml(res.mandate.goal)}</span>
+            <span class="receipt-badge-confirmed" style="background:var(--success-soft); color:var(--success); border:1px solid var(--success-border);">ACTIVE</span>
           </div>
-          <div style="display:flex; flex-wrap:wrap; gap:16px; margin: 10px 0 8px 0; font-size:13px; color:#94a3b8;">
-            <div>Mandate Budget: <strong style="color:#fff;">${res.budgetState.totalBudget}</strong></div>
-            <div>Per-Agent Cap: <strong style="color:#fff;">${res.mandate.perAgentCap}</strong></div>
-            <div>Disbursed: <strong style="color:#10b981;">${res.budgetState.spent}</strong></div>
-            <div>Remaining: <strong style="color:#38bdf8;">${res.budgetState.remaining}</strong></div>
+          <div style="display:flex; flex-wrap:wrap; gap:16px; margin: 10px 0 8px 0; font-size:13px; color:var(--text-muted);">
+            <div>Mandate Budget: <strong style="color:var(--text-primary);">${res.budgetState.totalBudget}</strong></div>
+            <div>Per-Agent Cap: <strong style="color:var(--text-primary);">${res.mandate.perAgentCap}</strong></div>
+            <div>Disbursed: <strong style="color:var(--success);">${res.budgetState.spent}</strong></div>
+            <div>Remaining: <strong style="color:var(--accent);">${res.budgetState.remaining}</strong></div>
           </div>
-          <div style="font-size:12px; padding:6px 10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#fca5a5;">
+          <div style="font-size:12px; padding:6px 10px; background:var(--danger-soft); border:1px solid var(--danger-border); border-radius:6px; color:var(--danger);">
             🛑 <strong>Active Restriction:</strong> ${escapeHtml(res.mandate.restrictions ? res.mandate.restrictions[0] : 'Purchases prohibited without explicit user authorization.')}
           </div>
         </div>
 
         <!-- 2. Specialized Multi-Agent Roles (Researcher -> Analyst -> Verifier -> Orchestrator) -->
-        <div style="margin-bottom:12px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 12px;">
-          <div style="font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Specialized Agent Delegation</div>
+        <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:10px 12px;">
+          <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Specialized Agent Delegation</div>
           <div style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
             ${delegationRows}
           </div>
         </div>
 
         <!-- 3. Executive Verified Deliverable -->
-        <div style="margin-bottom:12px; background:#0b0f19; border:1px solid #1e293b; border-radius:8px; padding:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #1e293b; padding-bottom:8px;">
-            <div style="font-size:13px; font-weight:600; color:#38bdf8; text-transform:uppercase; letter-spacing:0.5px;">Verified Executive Deliverable</div>
-            <span style="font-size:11.5px; background:rgba(16,185,129,0.15); color:#10b981; padding:3px 8px; border-radius:12px; font-weight:600;">✓ AUDIT PASSED</span>
+        <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-subtle); padding-bottom:8px;">
+            <div style="font-size:13px; font-weight:600; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px;">Verified Executive Deliverable</div>
+            <span style="font-size:11.5px; background:var(--success-soft); color:var(--success); padding:3px 8px; border-radius:12px; font-weight:600;">✓ AUDIT PASSED</span>
           </div>
-          <div class="deliverable-body" style="font-size:13.5px; line-height:1.65; color:#cbd5e1;">
+          <div class="deliverable-body" style="font-size:13.5px; line-height:1.65; color:var(--text-secondary);">
             ${renderMarkdownRich(res.deliverable.preview)}
           </div>
         </div>
 
         <!-- 4. On-Chain Settlement / NEAR Escrow -->
-        <div style="margin-bottom:12px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px;">
-          <div style="font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">On-Chain Testnet Settlement</div>
-          <div style="font-size:13px; color:#cbd5e1; line-height:1.5;">
-            • <strong>Disbursement:</strong> Paid ${res.payout.amount} to <code style="color:#38bdf8;">${res.payout.recipient}</code> for verified research services.<br>
+        <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:12px;">
+          <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">On-Chain Testnet Settlement</div>
+          <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
+            • <strong>Disbursement:</strong> Paid ${res.payout.amount} to <code style="color:var(--accent);">${res.payout.recipient}</code> for verified research services.<br>
             • <strong>Testnet Transaction:</strong> ${txLink ? txLink + ' (Live on NearBlocks)' : '<em>Pending block inclusion</em>'}<br>
             • <strong>Policy Audit:</strong> Validated allowlist, verified rubric, under ${res.mandate.perAgentCap} cap.
           </div>
@@ -1091,7 +1067,7 @@ function formatMarkdown(text) {
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline;">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline;">$1</a>');
 }
 
 function renderMarkdownRich(md) {
@@ -1111,7 +1087,7 @@ function renderMarkdownRich(md) {
       }
       if (trimmed.includes('---')) continue;
       const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
-      html += '<tr>' + cells.map(c => '<td style="padding:6px 10px; border:1px solid #1e293b;">' + formatMarkdown(c) + '</td>').join('') + '</tr>';
+      html += '<tr>' + cells.map(c => '<td style="padding:6px 10px; border:1px solid var(--border-subtle);">' + formatMarkdown(c) + '</td>').join('') + '</tr>';
       continue;
     } else if (inTable) {
       html += '</table>';
@@ -1119,16 +1095,16 @@ function renderMarkdownRich(md) {
     }
 
     if (trimmed.startsWith('# ')) {
-      html += '<h2 style="font-size:16px; font-weight:700; color:#fff; margin:14px 0 8px 0;">' + formatMarkdown(trimmed.slice(2)) + '</h2>';
+      html += '<h2 style="font-size:16px; font-weight:700; color:var(--text-primary); margin:14px 0 8px 0;">' + formatMarkdown(trimmed.slice(2)) + '</h2>';
     } else if (trimmed.startsWith('## ')) {
-      html += '<h3 style="font-size:14px; font-weight:600; color:#38bdf8; margin:12px 0 6px 0;">' + formatMarkdown(trimmed.slice(3)) + '</h3>';
+      html += '<h3 style="font-size:14px; font-weight:600; color:var(--accent); margin:12px 0 6px 0;">' + formatMarkdown(trimmed.slice(3)) + '</h3>';
     } else if (trimmed.startsWith('### ')) {
-      html += '<h4 style="font-size:13px; font-weight:600; color:#f1f5f9; margin:10px 0 4px 0;">' + formatMarkdown(trimmed.slice(4)) + '</h4>';
+      html += '<h4 style="font-size:13px; font-weight:600; color:var(--text-primary); margin:10px 0 4px 0;">' + formatMarkdown(trimmed.slice(4)) + '</h4>';
     } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
       if (!inList) { html += '<ul style="margin:4px 0 8px 18px; padding:0;">'; inList = true; }
       html += '<li style="margin-bottom:3px;">' + formatMarkdown(trimmed.slice(2)) + '</li>';
     } else if (trimmed === '---') {
-      html += '<hr style="border:0; border-top:1px solid #1e293b; margin:12px 0;">';
+      html += '<hr style="border:0; border-top:1px solid var(--border-subtle); margin:12px 0;">';
     } else if (trimmed.length > 0) {
       if (inList) { html += '</ul>'; inList = false; }
       html += '<p style="margin-bottom:8px;">' + formatMarkdown(trimmed) + '</p>';
@@ -1245,15 +1221,15 @@ async function loadSwapHistory() {
         const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent';
         const isSuccess = s.status === 'payout_confirmed';
         const statusBadge = isSuccess
-          ? '<span style="color:#10a37f; font-weight:600; font-size:11px;">Confirmed</span>'
-          : '<span style="color:#ef4444; font-weight:600; font-size:11px;">Failed</span>';
+          ? '<span style="color:var(--success); font-weight:600; font-size:11px;">Confirmed</span>'
+          : '<span style="color:var(--danger); font-weight:600; font-size:11px;">Failed</span>';
         const txLink = s.payoutTxHash
-          ? '<a href="https://testnet.nearblocks.io/txns/' + s.payoutTxHash + '" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline; font-family:var(--font-mono); font-size:11px;">' + s.payoutTxHash.slice(0, 8) + '...</a>'
-          : '<span style="color:#64748b; font-size:11px;">-</span>';
+          ? '<a href="https://testnet.nearblocks.io/txns/' + s.payoutTxHash + '" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline; font-family:var(--font-mono); font-size:11px;">' + s.payoutTxHash.slice(0, 8) + '...</a>'
+          : '<span style="color:var(--text-muted); font-size:11px;">-</span>';
         return '<tr>' +
           '<td>' + dateStr + '</td>' +
           '<td><strong>' + Number(s.inputNear).toFixed(2) + ' NEAR</strong></td>' +
-          '<td style="color:#10a37f; font-weight:600;">' + Number(s.outputAmount).toFixed(2) + ' USDT</td>' +
+          '<td style="color:var(--success); font-weight:600;">' + Number(s.outputAmount).toFixed(2) + ' USDT</td>' +
           '<td>1 NEAR = ' + s.exchangeRate + ' USDT</td>' +
           '<td style="font-family:var(--font-mono); font-size:11px;">' + escapeHtml(s.destinationWallet) + '</td>' +
           '<td>' + statusBadge + '</td>' +
@@ -1345,13 +1321,13 @@ if (btnExecuteSwap) {
         setStepState(swapStep4, 'completed');
 
         swapResultBox.style.display = 'block';
-        swapResultBox.style.background = 'rgba(16, 163, 127, 0.12)';
-        swapResultBox.style.border = '1px solid rgba(16, 163, 127, 0.3)';
-        swapResultBox.style.color = '#fff';
+        swapResultBox.style.background = 'var(--success-soft)';
+        swapResultBox.style.border = '1px solid var(--success-border)';
+        swapResultBox.style.color = 'var(--text-primary)';
         swapResultBox.innerHTML =
           '<strong>✅ Swap & Payout Confirmed!</strong><br>' +
           'Transferred <strong>' + data.outputUsdt + ' Test USDT</strong> to <code>' + escapeHtml(data.destinationWallet) + '</code>.<br>' +
-          '<a href="' + data.explorerUrl + '" target="_blank" rel="noopener noreferrer" style="color:#10a37f; text-decoration:underline; font-family:var(--font-mono); font-size:11.5px; margin-top:4px; display:inline-block;">View Transaction on NearBlocks ↗</a>';
+          '<a href="' + data.explorerUrl + '" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline; font-family:var(--font-mono); font-size:11.5px; margin-top:4px; display:inline-block;">View Transaction on NearBlocks ↗</a>';
 
         showToast('Swap Confirmed! ' + data.outputUsdt + ' Test USDT sent.');
         loadTreasuryBalance();
@@ -1359,16 +1335,16 @@ if (btnExecuteSwap) {
       } else {
         setStepState(swapStep3, 'active');
         swapResultBox.style.display = 'block';
-        swapResultBox.style.background = 'rgba(239, 68, 68, 0.12)';
-        swapResultBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-        swapResultBox.style.color = '#fca5a5';
+        swapResultBox.style.background = 'var(--danger-soft)';
+        swapResultBox.style.border = '1px solid var(--danger-border)';
+        swapResultBox.style.color = 'var(--danger)';
         swapResultBox.innerHTML = '<strong>❌ Swap Failed:</strong> ' + escapeHtml(data.error || 'Transaction rejected.');
       }
     } catch (err) {
       swapResultBox.style.display = 'block';
-      swapResultBox.style.background = 'rgba(239, 68, 68, 0.12)';
-      swapResultBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-      swapResultBox.style.color = '#fca5a5';
+      swapResultBox.style.background = 'var(--danger-soft)';
+      swapResultBox.style.border = '1px solid var(--danger-border)';
+      swapResultBox.style.color = 'var(--danger)';
       swapResultBox.innerHTML = '<strong>❌ Network Error:</strong> ' + escapeHtml(err.message);
     } finally {
       btnExecuteSwap.disabled = false;
