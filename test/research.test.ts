@@ -27,7 +27,7 @@ describe('free public-source specialists', () => {
     expect(result.deliverable.preview).not.toMatch(/stablecoin|LATAM|Africa/);
     expect(result.deliverable.preview).not.toContain('Retrieved');
     expect(result.deliverable.sources.every(source => /ikea|steelcase|hermanmiller/.test(source.url))).toBe(true);
-    expect(progress.mock.calls.map(([step]) => step.phase)).toEqual(['Orchestrator', 'Researcher', 'Analyst', 'Verifier']);
+    expect([...new Set(progress.mock.calls.map(([step]) => step.phase))]).toEqual(['Orchestrator', 'Researcher', 'Analyst', 'Verifier']);
   });
   it('retrieves actual publisher observations and computes exact quantity totals', async () => {
     const research = await researchPublicSources(goal, load());

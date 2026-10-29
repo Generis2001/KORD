@@ -6,7 +6,6 @@ import path from 'path';
 import { Store } from './db.js';
 import { loadNearConfig } from './near.js';
 import { runAutonomousMandate } from './runner.js';
-import { researchPaymentRequest } from './research-payment.js';
 import { AgentWallet, validAccount } from './agent-wallet.js';
 import { auditWalletReceipt } from './receipt-audit.js';
 import { VerifiedEscrow } from './escrow.js';
@@ -276,6 +275,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
 
     const lower = prompt.toLowerCase();
+    const researching = /\b(?:research|analy[sz]e|verify|investigate|compare|summari[sz]e|explain|find)\b/i.test(prompt);
 
 
     try {
@@ -315,7 +315,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     if (/\b(?:received|got|claimed)\s+[0-9.]+\s*(?:near|usdt)\b/i.test(lower)) {
       return json(200, { type: 'text', message: 'Funds received in your linked wallet stay there until you deposit them into your agent wallet. Use **Deposit 2 NEAR** or **Deposit 5 USDT** to sign a transfer.' });
     }
-    if (/\b(?:faucet|claim near|get testnet near|free near|near faucet)\b/i.test(lower)) {
+    if (!researching && /\b(?:faucet|claim near|get testnet near|free near|near faucet)\b/i.test(lower)) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         type: 'text',
@@ -325,7 +325,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       }));
     }
 
-    if (/balance|wallet info|staking position/i.test(lower)) {
+    if (!researching && /balance|wallet info|staking position/i.test(lower)) {
       try {
         const wallet = await agentWallet.snapshot(userAccount);
         return json(200, { type: 'text', ...wallet,
@@ -334,7 +334,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
 
     // Case D: View Allowlist
-    if (/allowlist|payable|who can i pay|approved accounts/i.test(lower) && !/^add\s/i.test(lower)) {
+    if (!researching && /allowlist|payable|who can i pay|approved accounts/i.test(lower) && !/^add\s/i.test(lower)) {
       try {
         const list = await store.getAllowlist(userAccount);
         return json(200, { type: 'allowlist_view', allowlist: list, message: 'Here are your approved payable accounts on NEAR (' + list.length + ' active):' });
@@ -354,7 +354,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
 
     // Case F: Security Notice for private keys
-    if (/key|secret|private|seed|wallet dump/i.test(lower)) {
+    if (/\b(?:private keys?|seed phrase|secret keys?|wallet dump|wallet seed)\b/i.test(lower) && !researching) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         type: 'security_notice',
@@ -363,19 +363,19 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
 
     // Case G: Greeting, Capabilities, and Conversational Inquiries
-    const isGreeting = /^(hello|hi|hey|greetings|howdy|good\s+(morning|afternoon|evening|day)|yo\b|sup\b)/i.test(lower) ||
-                       ['hello', 'hi', 'hey', 'hello there', 'hi there', 'hey there'].includes(lower.trim());
-    const isHelpOrCapabilities = /^(what can you do|who are you|how does (?:this|mandate) work|help|what is mandate|what are your agents|explain agents)/i.test(lower);
-    const isSmallTalk = /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
+    const isGreeting = !researching && (/^(hello|hi|hey|greetings|howdy|good\s+(morning|afternoon|evening|day)|yo\b|sup\b)/i.test(lower) ||
+                       ['hello', 'hi', 'hey', 'hello there', 'hi there', 'hey there'].includes(lower.trim()));
+    const isHelpOrCapabilities = /^explain agents[?!.]*$/i.test(lower) || (!researching && /^(what can you do|who are you|how does (?:this|mandate) work|help|what is mandate|what are your agents)/i.test(lower));
+    const isSmallTalk = !researching && /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
 
     if (isGreeting || isHelpOrCapabilities || isSmallTalk) {
       const greetingMsg = "I am **Mandate**, your NEAR wallet and public-source research workspace.\n\n" +
         "- 🧭 **Orchestrator:** Plans the directive and records spending permissions.\n" +
-        "- 🔍 **Researcher:** Retrieves public pages or free Ref Finance market feeds with source timestamps.\n" +
-        "- 📊 **Analyst:** Compares observed prices, calculates quantity estimates and prepares a recommendation.\n" +
+        "- 🔍 **Researcher:** Searches online, reads relevant publications and follows policy pages and references to resolve evidence gaps. Source links are optional.\n" +
+        "- 📊 **Analyst:** Builds cited answers and comparisons, calculates quantity estimates and prepares a recommendation.\n" +
         "- 🛡️ **Verifier:** Checks source integrity, freshness, coverage and calculations; releases explicitly requested testnet escrow after verification.\n\n" +
         "Research uses no paid model or API. You can authorize a testnet NEAR research fee, released through escrow after verification. Private quotations and unpublished fees stay marked as missing.\n\n" +
-        "Try **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**, or compare products using their HTTPS links.\n\n" +
+        "Try **Research solar energy in Nigeria; research fee 0.01 NEAR**, or **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**. An explicit testnet fee is released only after verification and wallet authorization.\n\n" +
         "Use **Deposit 2 NEAR**, **Swap 2 NEAR for USDT**, **Stake 1 NEAR** or **Unstake 1 NEAR** for wallet actions.";
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -397,7 +397,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     const streaming = payload.stream === true;
     const writeEvent = (event: unknown) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
     try {
-      if (researchPaymentRequest(prompt) || /\bescrow\b|past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt)) await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+      if (/past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt)) await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
       if (streaming) {
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'X-Accel-Buffering': 'no' });
         res.flushHeaders();
@@ -416,6 +416,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           return { text: auditWalletReceipt(operation, receipt, agentWallet.identity(userAccount).accountId, signerId, { NEAR: agentWallet.nearPool, USDT: agentWallet.usdtPool }), url: agentWallet.explorer(hash) };
         },
         settleEscrow: async request => {
+          await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
           if (!(await store.isAllowed(request.recipient, userAccount))) throw new Error('Add the escrow recipient to your payable allowlist first.');
           return verifiedEscrow.settle(userAccount, request);
         },

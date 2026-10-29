@@ -147,6 +147,8 @@ kbd { font-family: var(--font-mono); font-weight: 400; }
 .run-steps li > strong { display: block; font-size: 12px; font-weight: 500; }
 .run-source > span { display: block; margin-top: 6px; color: var(--text-muted); }
 .mandate-answer { color: var(--text-primary); font-size: 14px; line-height: 1.8; }
+.refine-research { align-self: flex-start; padding: 5px 0; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.refine-research:hover { color: var(--accent-text); }
 .deliverable-table-scroll { max-width: 100%; overflow-x: auto; }
 .deliverable-table-scroll .deliverable-table { min-width: 600px; overflow-wrap: normal; }
 @keyframes run-pulse { 50% { opacity: .55; } }

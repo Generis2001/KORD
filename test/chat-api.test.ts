@@ -45,7 +45,9 @@ describe('directive routing and streamed agent API', () => {
     expect(response.body).not.toContain('"type":"result"');
     release(); await done;
     const events = response.body.trim().split('\n').map(line => JSON.parse(line));
-    expect(events.map(event => event.type)).toEqual(['progress', 'progress', 'progress', 'progress', 'result']);
+    expect(events.slice(0, -1).every(event => event.type === 'progress')).toBe(true);
+    expect(events.at(-1).type).toBe('result');
+    expect([...new Set(events.slice(0, -1).map(event => event.step.phase))]).toEqual(['Orchestrator', 'Researcher', 'Analyst', 'Verifier']);
     expect(events.every(event => event.requestId === 'mandate_chair_api')).toBe(true);
     expect(events.at(-1).data.mandateResult.mandate).toMatchObject({ goal, requestedGoal: goal, domain: 'procurement' });
     expect(response.headers['content-type']).toContain('application/x-ndjson');
@@ -59,5 +61,26 @@ describe('directive routing and streamed agent API', () => {
     await Promise.all([chairs.done, corridor.done]);
     expect(JSON.parse(chairs.response.body).mandateResult.mandate).toMatchObject({ id: 'mandate_chairs_parallel', goal, domain: 'procurement' });
     expect(JSON.parse(corridor.response.body).mandateResult.mandate).toMatchObject({ id: 'mandate_corridor_parallel', goal: corridorGoal, domain: 'stablecoin_corridor' });
+  });
+  it('finishes public research before gating an unauthenticated research fee', async () => {
+    sourceLoader.mockImplementation(async url => { if (url.includes('duckduckgo')) throw new Error('Search unavailable'); return page(url); });
+    const paid = request('Find three suppliers of 100 office chairs and compare prices; research fee 0.01 NEAR', 'mandate_paid_readonly', true);
+    await paid.done;
+    const events = paid.response.body.trim().split('\n').map(line => JSON.parse(line));
+    const result = events.at(-1).data.mandateResult;
+    expect(result.deliverable.verification.passed).toBe(true);
+    expect(result.deliverable.sources.length).toBeGreaterThanOrEqual(3);
+    expect(result.payout.status).toBe('blocked');
+    expect(result.payout.onchain).toBe(false);
+    expect(result.payout.reasons[0].message).toContain('authorize your wallet');
+  });
+  it('routes a research directive preceded by small talk into the research pipeline', async () => {
+    sourceLoader.mockImplementation(async url => page(url));
+    const goal = 'Okay, research the NEAR consensus mechanism';
+    const requested = request(goal, 'mandate_greeting_research');
+    await requested.done;
+    const response = JSON.parse(requested.response.body);
+    expect(response.type).toBe('mandate_execution');
+    expect(response.mandateResult.mandate.requestedGoal).toBe(goal);
   });
 });

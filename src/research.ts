@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
 import { loadPublicPage, publicUrl, type PublicPage, type SourceLoader } from './public-sources.js';
+import { discoverSources, publisher, referenceLinks, supportingLinks, type SearchAttempt } from './discovery.js';
+import { clarificationQuestions, evidenceGaps, evidenceRequirements, extractFindings, relevant, requestedLocation, topicTerms, type ResearchFinding } from './research-evidence.js';
 
 export interface PublishedPrice { value: string; currency: string; label: string; kind: 'published price' | 'market price' }
 export interface ResearchSource {
-  url: string; title: string; retrievedAt: string; hash: string; text: string; prices: PublishedPrice[]; raw?: string;
+  url: string; title: string; retrievedAt: string; hash: string; text: string; prices: PublishedPrice[]; raw?: string; supportingFor?: string; discoveredUrl?: string;
 }
-export interface ResearchResult { sources: ResearchSource[]; gaps: string[]; quantity: number; subject: string; minimumSources: number; negotiated: boolean }
+export interface ResearchResult {
+  sources: ResearchSource[]; gaps: string[]; quantity: number; subject: string; minimumSources: number; negotiated: boolean;
+  findings?: ResearchFinding[]; searches?: SearchAttempt[]; followUpQuestions?: string[];
+  pricesRequested?: boolean; requestedFacets?: string[];
+}
 export const REF_PRICES = 'https://api.ref.finance/list-token-price';
 export const REF_POOLS = 'https://api.ref.finance/list-top-pools';
 const clean = (value: string) => value.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
@@ -46,50 +52,89 @@ export function sourceFromPage(page: PublicPage): ResearchSource {
 export function researchPlan(goal: string) {
   const urls = [...new Set((goal.match(/https:\/\/[^\s<>"')]+/g) || []).map(url => url.replace(/[.,;]+$/, '')))];
   const withoutUrls = goal.replace(/https:\/\/\S+/g, '').replace(/;?\s*escrow\s+\d+(?:\.\d+)?\s+NEAR\s+to\s+\S+/gi, '').replace(/(?:you may|spend|budget|up to|no more than)[^.]*[$£€]\s*\d+(?:\.\d+)?[^.]*/gi, '');
-  const subject = withoutUrls.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|identify|gather|published|public|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|mandate|quotations?|quotes?)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const subject = withoutUrls.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|analy[sz]e|verify|explain|summari[sz]e|investigate|identify|gather|published|public|online|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|mandate|quotations?|quotes?|what is|how does|tell me about)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim().replace(/[.,;]+$/, '');
   const quantity = Number(withoutUrls.match(/\b(\d+)\s+(?:office\s+)?(?:chairs?|laptops?|units?|items?)/i)?.[1] || 1);
   const requestedCount = withoutUrls.match(/\b(three|two|one|\d+)\s+(?:suppliers?|vendors?|providers?|sources?)/i)?.[1]?.toLowerCase();
   const count = requestedCount ? ({ three: 3, two: 2, one: 1 } as Record<string, number>)[requestedCount] || Number(requestedCount) : Math.max(urls.length, 2);
   return { urls, subject, quantity, minimumSources: count, negotiated: /negotiated|bulk quotes?|volume quotes?|100[- ]unit.*quote/i.test(goal) };
 }
 
-async function discover(subject: string, load: SourceLoader) {
-  const page = await load('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(subject + ' published pricing'));
-  const links: string[] = [];
-  for (const match of page.body.matchAll(/<a\b(?=[^>]*class=["'][^"']*result__a)[^>]*href=["']([^"']+)/gi)) {
-    try {
-      const href = new URL(clean(match[1]), page.url);
-      const target = href.searchParams.get('uddg') || href.href;
-      links.push(publicUrl(target).href);
-    } catch { /* Search results never bypass the source URL checks. */ }
-  }
-  return [...new Set(links)].slice(0, 5);
-}
-
-export async function researchPublicSources(goal: string, load: SourceLoader = loadPublicPage): Promise<ResearchResult> {
-  const plan = researchPlan(goal), gaps: string[] = [];
-  let urls = plan.urls;
-  if (!urls.length) {
-    try { urls = await discover(plan.subject || goal, load); }
-    catch { /* Fall back to public publisher pages; never to fabricated content. */ }
-    if (!urls.length && /chair/i.test(plan.subject)) urls = ['https://www.ikea.com/us/en/p/markus-office-chair-vissle-dark-gray-90289172/', 'https://store.steelcase.com/seating/office-chairs/steelcase-series-1', 'https://www.hermanmiller.com/products/seating/office-chairs/verus-chairs/'];
-    if (!urls.length && /laptop/i.test(plan.subject)) urls = ['https://frame.work/products/laptop-13-gen-intel', 'https://www.dell.com/en-us/shop/laptops/scr/laptops', 'https://www.lenovo.com/us/en/c/laptops/'];
-    if (!urls.length && /corridor|cross.border|stablecoin/i.test(goal)) urls = ['https://www.bridge.xyz/', 'https://bvnk.com/', 'https://yellowcard.io/'];
-    if (!urls.length) gaps.push('No public sources were discovered. Add HTTPS product or pricing links to the mandate.');
-  }
-  const results = await Promise.allSettled(urls.slice(0, 6).map(async url => sourceFromPage(await load(publicUrl(url).href))));
-  const sources: ResearchSource[] = [];
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled' && result.value.text.length > 80) {
-      const terms = plan.subject.toLowerCase().split(/\W+/).filter(term => term.length > 3 && !['office', 'delivery', 'terms'].includes(term));
-      const singleProduct = new Set(result.value.prices.map(price => price.label)).size === 1;
-      const productPageMatches = singleProduct && terms.some(term => result.value.title.toLowerCase().includes(term.replace(/s$/, '')));
-      if (terms.length) result.value.prices = result.value.prices.filter(price => productPageMatches || terms.some(term => price.label.toLowerCase().includes(term.replace(/s$/, ''))));
-      sources.push(result.value);
+export async function researchPublicSources(goal: string, load: SourceLoader = loadPublicPage, onActivity?: (title: string, detail: string) => void): Promise<ResearchResult> {
+  const plan = researchPlan(goal), requirements = evidenceRequirements(goal), sources: ResearchSource[] = [], searches: SearchAttempt[] = [];
+  const seen = new Set<string>(), frontier = new Map<string, { url: string }>(), deadline = Date.now() + 38_000;
+  const namedNear = /\bNEAR\b/.test(plan.subject) || /\bnear protocol\b/i.test(plan.subject);
+  if (!topicTerms(plan.subject).length && !namedNear) return { ...plan, sources, searches, findings: [], gaps: ['A specific research topic or question is needed.'], followUpQuestions: ['What subject or question should I research?'], pricesRequested: requirements.prices, requestedFacets: requirements.facets };
+  const linkTerms = new RegExp([...topicTerms(plan.subject).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'documentation', 'docs', 'protocol'].join('|'), 'i');
+  let requests = 0;
+  const bounded: SourceLoader = async url => {
+    const remaining = Math.min(7000, deadline - Date.now());
+    if (remaining <= 0 || ++requests > 32) throw new Error('Research reached its bounded retrieval limit.');
+    let timer: ReturnType<typeof setTimeout>;
+    try { return await Promise.race([load(url), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Research source timed out.')), remaining); })]); }
+    finally { clearTimeout(timer!); }
+  };
+  const collect = async (candidates: { url: string; parent?: string }[]) => {
+    const selected: typeof candidates = [];
+    for (const candidate of candidates) {
+      if (selected.length >= 8 || seen.size >= 18) break;
+      if (!seen.has(candidate.url)) { seen.add(candidate.url); selected.push(candidate); }
     }
-    else gaps.push(urls[index] + ': ' + (result.status === 'rejected' ? result.reason.message : 'No readable source content.'));
-  });
-  return { ...plan, sources, gaps };
+    if (!selected.length) return;
+    onActivity?.('Reading source pages', `Retrieving ${selected.length} candidate pages and checking their relevance to ${plan.subject}.`);
+    const results = await Promise.allSettled(selected.map(async ({ url, parent }) => {
+      const source = sourceFromPage(await bounded(publicUrl(url).href));
+      if (source.text.length < 80 || /captcha|verify (?:that )?you are human|access denied|enable javascript to continue/i.test(source.text.slice(0, 700))) return;
+      if (source.raw && new URL(source.url).hostname !== 'en.wikipedia.org' && (relevant(source, plan.subject) || (namedNear && publisher(source.url) === 'near.org'))) {
+        const keywords = topicTerms(plan.subject);
+        const score = (link: string) => keywords.filter(keyword => link.toLowerCase().includes(keyword)).length;
+        const links = supportingLinks(source.raw, source.url, linkTerms, 1000).sort((a, b) => score(b) - score(a)).slice(0, 3);
+        for (const link of links) if (!seen.has(link)) frontier.set(link, { url: link });
+      }
+      if (!parent && !relevant(source, plan.subject)) return;
+      if (parent) { source.supportingFor = parent; source.discoveredUrl = url; }
+      const terms = topicTerms(plan.subject), singleProduct = new Set(source.prices.map(price => price.label)).size === 1;
+      const productMatches = singleProduct && terms.some(term => source.title.toLowerCase().includes(term));
+      if (terms.length) source.prices = source.prices.filter(price => productMatches || terms.some(term => price.label.toLowerCase().includes(term)));
+      return source;
+    }));
+    for (const result of results) if (result.status === 'fulfilled' && result.value && !sources.some(source => source.url === result.value!.url)) sources.push(result.value);
+  };
+  const bootstrap = /chair/i.test(plan.subject) ? ['https://www.ikea.com/us/en/p/markus-office-chair-vissle-dark-gray-90289172/', 'https://store.steelcase.com/seating/office-chairs/steelcase-series-1', 'https://www.hermanmiller.com/products/seating/office-chairs/verus-chairs/']
+    : /laptop/i.test(plan.subject) ? ['https://frame.work/products/laptop-13-gen-intel', 'https://www.dell.com/en-us/shop/laptops/scr/laptops', 'https://www.lenovo.com/us/en/c/laptops/']
+    : /corridor|cross.border|stablecoin/i.test(goal) ? ['https://www.bridge.xyz/', 'https://bvnk.com/', 'https://yellowcard.io/']
+    : namedNear ? ['https://docs.near.org/'] : [];
+  let initial = plan.urls;
+  if (!initial.length) {
+    onActivity?.('Searching the web', 'Searching independent public indexes; links are optional and search snippets are not evidence.');
+    const queries = [plan.subject + (requirements.prices ? ' published prices' : ''), plan.subject + ' ' + (requirements.facets[0] || 'official sources')];
+    initial = [...bootstrap, ...await discoverSources([...new Set(queries)], bounded, searches)];
+  }
+  await collect(initial.map(url => ({ url })));
+  const findings = () => sources.flatMap(source => extractFindings(source, plan.subject, goal));
+  const gaps = () => evidenceGaps(goal, sources, findings(), plan.minimumSources);
+  const followReferences = async () => {
+    const links = [...frontier.values(), ...sources.flatMap(source => {
+      const policies = source.raw && requirements.facets.length ? supportingLinks(source.raw, source.url, /ship|deliver|freight|warrant|stock|countr|coverage|supported|pricing|fees/i).slice(0, 2).map(url => ({ url, parent: source.url })) : [];
+      return [...policies, ...referenceLinks(source.raw || '', source.url, plan.subject).slice(0, 5).map(url => ({ url }))];
+    })].filter(({ url }) => !seen.has(url));
+    if (links.length && gaps().length) {
+      onActivity?.('Following publisher evidence', 'Opening published policy pages and primary references to resolve outstanding acceptance criteria.');
+      await collect(links);
+    }
+  };
+  await followReferences();
+  if (gaps().length && Date.now() < deadline && requests < 24) {
+    onActivity?.('Researching unresolved evidence', gaps().join(' '));
+    const namedTopic = /\bNEAR\b/.test(plan.subject) || /\bnear protocol\b/i.test(plan.subject) ? 'NEAR Protocol' : '';
+    const focus = (namedTopic ? namedTopic + ' ' : '') + (topicTerms(plan.subject).join(' ') || plan.subject) + (requestedLocation(goal) ? ' ' + requestedLocation(goal)!.place : '');
+    const queries = [focus.trim(), namedTopic || (focus + ' ' + (requirements.prices ? 'price delivery' : requirements.facets.join(' '))).trim()].filter(Boolean);
+    const discovered = await discoverSources([...new Set(queries)], bounded, searches, true);
+    await collect(discovered.map(url => ({ url })));
+    await followReferences();
+  }
+  const problems = gaps();
+  if (plan.negotiated) problems.push('Negotiated or volume quotations require vendor confirmation; public unit prices do not establish those terms.');
+  return { ...plan, sources, findings: findings(), searches, gaps: problems, followUpQuestions: clarificationQuestions(goal, problems), pricesRequested: requirements.prices, requestedFacets: requirements.facets };
 }
 
 /** Public mainnet observations are labelled separately from the testnet demonstration token. */
@@ -143,11 +188,15 @@ function comparePrices(a: string, b: string) {
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;
 }
 export function analyzeResearch(research: ResearchResult) {
-  const rows = research.sources.flatMap(source => source.prices.length
+  const findings = (research.findings || []).map(finding => ({ ...finding }));
+  const rows = research.sources.filter(source => !source.supportingFor).flatMap(source => source.prices.length
     ? source.prices.map(price => ({ source: source.url, label: price.label, value: price.value, currency: price.currency, total: price.kind === 'published price' ? quantityTotal(price.value, research.quantity) : '', kind: price.kind }))
     : [{ source: source.url, label: source.title, value: '', currency: '', total: '', kind: 'public information' }]);
-  const table = '| Source / product | Observed price | Quantity estimate | Evidence |\n|---|---|---|---|\n' + rows.map(row =>
-    `| ${markdown(row.label)} | ${row.value ? markdown(row.value + ' ' + row.currency + ' · ' + row.kind) : 'Not published'} | ${row.total ? markdown(row.total + ' ' + row.currency + ' for ' + research.quantity) : 'Not applicable'} | [Source](${row.source}) |`).join('\n');
+  const delivery = research.requestedFacets?.includes('delivery');
+  const table = `| Source / product | Observed price | Quantity estimate |${delivery ? ' Published delivery terms |' : ''} Evidence |\n|---|---|---|${delivery ? '---|' : ''}---|\n` + rows.map(row => {
+    const terms = findings.find(finding => finding.kind === 'delivery' && publisher(finding.source) === publisher(row.source));
+    return `| ${markdown(row.label)} | ${row.value ? markdown(row.value + ' ' + row.currency + ' · ' + row.kind) : 'Not published'} | ${row.total ? markdown(row.total + ' ' + row.currency + ' for ' + research.quantity) : 'Not applicable'} |${delivery ? ' ' + (terms ? markdown(terms.excerpt) + ` [Policy](${terms.source})` : 'Further supplier details needed') + ' |' : ''} [Source](${row.source}) |`;
+  }).join('\n');
   const comparable = rows.filter(row => row.kind === 'published price' && row.value && row.currency);
   const currencies = new Set(comparable.map(row => row.currency));
   const lowest = currencies.size === 1 && comparable.length >= 2 ? [...comparable].sort((a,b) => comparePrices(a.value, b.value))[0] : undefined;
@@ -163,17 +212,32 @@ export function analyzeResearch(research: ResearchResult) {
   };
   const liquidityTable = liquidity.length ? '\n## Public pool liquidity\n\n| Pool | NEAR reserve | USDT reserve | Published TVL (USD) | Swap fee |\n|---|---|---|---|---|\n' + liquidity.map((pool: any) =>
     `| ${pool.id} | ${formatReserve(pool.reserves[pool.tokens.indexOf('wrap.near')], 24)} | ${formatReserve(pool.reserves[pool.tokens.indexOf('usdt.tether-token.near')], 6)} | ${Number(pool.tvlUsd).toFixed(2)} | ${(Number(pool.swapFeeBasisPoints) / 100).toFixed(2)}% |`).join('\n') + '\n\nReserves and TVL describe the public DEX pool. They do not guarantee an executable quote or fiat payout capacity.\n\n' : '';
-  const report = `# Research for: ${markdown(research.subject)}\n\n## Published observations\n\n${table}\n${liquidityTable}\n## Executive recommendation\n\n${recommendation}\n\n` +
+  const questions = research.followUpQuestions?.length ? '\n## Clarification needed\n\n' + research.followUpQuestions.map(question => '- ' + markdown(question)).join('\n') + '\n' : '';
+  const quoted = (entries: ResearchFinding[]) => entries.map(finding => `- “${markdown(finding.excerpt)}” [Source](${finding.source})`).join('\n');
+  const answerSources = research.sources.filter(source => !source.supportingFor).sort((a, b) => Number(new URL(a.url).hostname === 'en.wikipedia.org') - Number(new URL(b.url).hostname === 'en.wikipedia.org'));
+  const answerFindings: ResearchFinding[] = [], answerPublishers = new Set<string>();
+  for (const source of answerSources) {
+    if (answerPublishers.has(publisher(source.url))) continue;
+    const entries = findings.filter(finding => finding.source === source.url && finding.kind === 'finding');
+    if (entries.length) { answerPublishers.add(publisher(source.url)); answerFindings.push(...entries.slice(0, 2)); }
+  }
+  const topicReport = `# Research for: ${markdown(research.subject)}\n\n## Answer\n\n${answerFindings.length ? quoted(answerFindings.slice(0, 6)) : 'I could not establish a supported answer from the retrieved pages yet.'}\n\n` +
+    (research.requestedFacets?.length ? '## Analysis\n\n' + research.requestedFacets.map(facet => {
+      const entries = findings.filter(finding => finding.kind === facet).slice(0, 3);
+      return entries.length ? `### ${facet[0].toUpperCase() + facet.slice(1)}\n\n${quoted(entries)}\n` : '';
+    }).join('\n') : '') +
+    '\nThese are attributed passages from the retrieved publications. Source provenance and coverage are checked separately from the publishers’ claims.\n' + questions;
+  const report = research.pricesRequested === false ? topicReport : `# Research for: ${markdown(research.subject)}\n\n## Published observations\n\n${table}\n${liquidityTable}\n## Executive recommendation\n\n${recommendation}\n\n` +
     (research.quantity > 1 ? 'Quantity estimates multiply the published unit price; they are not negotiated quotations and exclude unpublished shipping and tax.\n\n' : '') +
-    (research.gaps.length ? '\n## Missing evidence\n\n' + research.gaps.map(gap => '- ' + markdown(gap)).join('\n') : '');
-  return { rows, report, recommendation, liquidity };
+    questions + (research.gaps.length && !questions ? '\n## Evidence to resolve\n\n' + research.gaps.map(gap => '- ' + markdown(gap)).join('\n') : '');
+  return { rows, report, recommendation: research.pricesRequested === false ? 'Review the cited findings and the requested topic evidence.' : recommendation, liquidity, findings };
 }
 
 export function verifyResearch(goal: string, research: ResearchResult, analysis: ReturnType<typeof analyzeResearch>) {
   const problems = [...research.gaps];
   if (research.sources.length < research.minimumSources) problems.push(`Need ${research.minimumSources} readable sources; retrieved ${research.sources.length}.`);
   if (research.negotiated) problems.push('Negotiated or volume quotations require vendor confirmation; public unit prices do not establish those terms.');
-  const terms = research.subject.toLowerCase().split(/\W+/).filter(term => term.length > 3 && !['office', 'source', 'sources', 'compare', 'published', 'prices', 'data', 'market', 'information', 'terms', 'delivery', 'research'].includes(term));
+  const terms = topicTerms(research.subject).filter(term => !['market', 'data', 'recorded', 'settlement', 'receipt'].includes(term));
   for (const source of research.sources) {
     try { publicUrl(source.url); } catch { problems.push('Invalid evidence URL: ' + source.url); }
     if (source.hash !== digest(source.raw || source.text)) problems.push('Source integrity changed: ' + source.url);
@@ -188,10 +252,20 @@ export function verifyResearch(goal: string, research: ResearchResult, analysis:
       } catch { problems.push('Market price is not backed by the feed snapshot: ' + source.url); }
     }
     if (!Number.isFinite(Date.parse(source.retrievedAt)) || Math.abs(Date.now() - Date.parse(source.retrievedAt)) > 15 * 60_000) problems.push('Source observation is stale: ' + source.url);
-    if (terms.length && !terms.some(term => (source.title + ' ' + source.text).toLowerCase().includes(term.replace(/s$/, '')))) problems.push('Source does not match the requested subject: ' + source.url);
+    if (source.supportingFor) {
+      const parent = research.sources.find(entry => entry.url === source.supportingFor);
+      if (!parent?.raw || publisher(parent.url) !== publisher(source.url) || !supportingLinks(parent.raw, parent.url, /./, 1000).some(url => url === source.url || url === source.discoveredUrl)) problems.push('Supporting evidence was not linked by the compared publisher: ' + source.url);
+    } else if (terms.length && ![REF_PRICES, REF_POOLS].includes(source.url) && !relevant(source, research.subject)) problems.push('Source does not match the requested subject: ' + source.url);
+  }
+  if (research.findings) {
+    for (const finding of analysis.findings) {
+      const source = research.sources.find(source => source.url === finding.source);
+      if (!source || !source.text.includes(finding.excerpt) || !extractFindings(source, research.subject, goal).some(entry => entry.kind === finding.kind && entry.excerpt === finding.excerpt)) problems.push('A finding is not backed by its cited source passage.');
+    }
+    problems.push(...evidenceGaps(goal, research.sources, analysis.findings, research.minimumSources));
   }
   if (/\b(?:three|two|one|\d+)\s+(?:suppliers?|vendors?|providers?)/i.test(goal)) {
-    const publishers = new Set(research.sources.map(source => new URL(source.url).hostname.replace(/^www\./, '')));
+    const publishers = new Set(research.sources.filter(source => !source.supportingFor).map(source => publisher(source.url)));
     if (publishers.size < research.minimumSources) problems.push('The requested number of independent suppliers or providers was not established.');
   }
   if (/price|pricing|quotations?|quotes?/i.test(goal) && !analysis.rows.some(row => row.value)) problems.push('No publisher-backed prices were found.');
@@ -199,7 +273,7 @@ export function verifyResearch(goal: string, research: ResearchResult, analysis:
     const pricedSources = new Set(analysis.rows.filter(row => row.value).map(row => row.source));
     if (pricedSources.size < research.minimumSources) problems.push(`Need published prices from ${research.minimumSources} sources; only ${pricedSources.size} sources publish usable prices.`);
   }
-  if (/\b(?:delivery terms|delivery times?|lead times?|freight|shipping costs?|warranty terms?|in stock|stock availability)\b/i.test(goal)) problems.push('The requested delivery, freight, warranty or stock terms require vendor evidence; structured unit prices do not establish those commercial terms.');
+  if (!research.findings && /\b(?:delivery terms|delivery times?|lead times?|freight|shipping costs?|warranty terms?|in stock|stock availability)\b/i.test(goal)) problems.push('The requested delivery, freight, warranty or stock terms require vendor evidence; structured unit prices do not establish those commercial terms.');
   for (const row of analysis.rows) {
     const source = research.sources.find(source => source.url === row.source);
     if (!source || (row.value && !source.prices.some(price => price.value === row.value && price.currency === row.currency && price.label === row.label))) problems.push('Analysis contains an unsupported price.');

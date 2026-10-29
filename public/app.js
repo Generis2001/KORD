@@ -922,7 +922,7 @@ function updateMandateProgress(id, request) {
   const open = content.querySelector('details')?.open || false;
   const last = request.steps.at(-1);
   const next = { Orchestrator: 'Researching sources…', Researcher: 'Comparing findings…', Analyst: 'Checking evidence…', Verifier: 'Finishing your report…' };
-  const label = next[last?.phase] || 'Working on your mandate…';
+  const label = last?.activity || next[last?.phase] || 'Working on your mandate…';
   content.innerHTML = runDisclosure(label, `<h4>Agent workflow</h4>${request.steps.length ? runSteps(request.steps) : '<p>Waiting for the workflow to start.</p>'}`, true, open);
 }
 
@@ -1078,6 +1078,7 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
       <p>Research fee: <strong>${currentWorkflow ? payout.status === 'not_requested' ? '0 NEAR' : escapeHtml(payout.amount) + ' · ' + escapeHtml(payout.status) : 'Historical record'}</strong> · Budget: ${escapeHtml(result.budgetState.totalBudget)}</p>
       <p>${escapeHtml(result.mandate.restrictions?.[0] || 'Purchases require explicit authorization.')}</p>
       <h4>Agent workflow</h4>${result.steps?.length ? runSteps(result.steps) : `<ol>${tasks}</ol>`}
+      ${result.deliverable.searches?.length ? `<h4>Online discovery</h4><ul>${result.deliverable.searches.map(search => `<li>${escapeHtml(search.provider)} · ${escapeHtml(search.query)} · ${search.found} candidate links${search.error ? ' · ' + escapeHtml(search.error) : ''}</li>`).join('')}</ul>` : ''}
       <h4>${passed ? 'Evidence checks passed' : 'Evidence checks found gaps'}</h4>
       ${issues ? `<ul>${issues}</ul>` : '<p>Source integrity, freshness, coverage and calculations checked.</p>'}
       <h4>Source receipts</h4>${sources.length ? sources.map(source => `<p class="run-source"><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small>${source.excerpt ? `<span>${escapeHtml(source.excerpt)}</span>` : ''}</p>`).join('') : '<p>No source evidence was retrieved.</p>'}
@@ -1085,7 +1086,15 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
     el.innerHTML = `${mandateAvatar}<div class="message-content">
       ${runDisclosure(label, details, false, open)}
       <div class="mandate-answer deliverable-body">${mismatchedHistory ? '<p>This saved response belongs to another directive. Its original report is available in the disclosure above. Send your current request again for a fresh result.</p>' : renderMarkdownRich(result.deliverable.preview)}</div>
+      ${!mismatchedHistory && result.deliverable.followUpQuestions?.length ? '<button class="refine-research">Refine request ↗</button>' : ''}
     </div>`;
+    el.querySelector('.refine-research')?.addEventListener('click', () => {
+      promptInput.value = result.mandate.goal + '\nAdditional details: ';
+      promptInput.style.height = 'auto';
+      promptInput.style.height = Math.min(promptInput.scrollHeight, 180) + 'px';
+      promptInput.focus();
+      showToast('Add the requested details. Authorize a research fee explicitly if you want one for this new request.');
+    });
     if (record && currentWorkflow && payout.status === 'confirmed') void loadTreasuryBalance();
   }
 }
@@ -1111,7 +1120,7 @@ function formatMarkdown(text) {
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => /^https?:\/\//i.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline;">${label}</a>` : label);
+    .replace(/\[([^\]]+)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)/g, (_, label, url) => /^https?:\/\//i.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline;">${label}</a>` : label);
 }
 
 function renderMarkdownRich(md) {
