@@ -15,7 +15,7 @@
     const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
     themeButton.title = `Switch to ${next} theme`;
     themeButton.setAttribute('aria-label', themeButton.title);
-    document.querySelector('meta[name="theme-color"]').content = next === 'light' ? '#262623' : '#f8f6f1';
+    document.querySelector('meta[name="theme-color"]').content = next === 'light' ? '#23271b' : '#f7faee';
   }
   updateThemeButton();
   themeButton.addEventListener('click', () => {

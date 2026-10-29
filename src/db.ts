@@ -45,7 +45,7 @@ export interface AllowlistEntry {
 }
 
 
-export const NEON_POSTGRES_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || "postgresql://neondb_owner:npg_S3zZHhxodIk4@ep-cold-grass-apvo72sg.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require";
+export const NEON_POSTGRES_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
 export class Store {
   readonly pgPool: pg.Pool | null = null;
@@ -66,13 +66,13 @@ export class Store {
     }
 
     try {
-      this.pgPool = new pg.Pool({
+      this.pgPool = NEON_POSTGRES_URL ? new pg.Pool({
         connectionString: NEON_POSTGRES_URL,
         ssl: { rejectUnauthorized: false },
         max: 5,
         idleTimeoutMillis: 10000
-      });
-      this.pgPool.query("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS balance_usdt REAL DEFAULT 60.00").catch(() => {});
+      }) : null;
+      this.pgPool?.query("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS balance_usdt REAL DEFAULT 0").catch(() => {});
     } catch {
       this.pgPool = null;
     }
@@ -120,8 +120,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS user_accounts (
         account_id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
-        balance_near REAL NOT NULL DEFAULT 10.00,
-        balance_usdt REAL NOT NULL DEFAULT 60.00,
+        balance_near REAL NOT NULL DEFAULT 0,
+        balance_usdt REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS agent_swaps (
         id TEXT PRIMARY KEY,
@@ -147,12 +147,18 @@ export class Store {
         title TEXT NOT NULL,
         messages_json TEXT NOT NULL DEFAULT '[]',
         updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS wallet_operations (
+        id TEXT PRIMARY KEY, user_account TEXT NOT NULL, data TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS wallet_locks (
+        account_id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, owner_pid INTEGER NOT NULL DEFAULT 0);
     `);
 
     // Safe schema migrations for existing DB instances
-    try { this.db.exec("ALTER TABLE user_accounts ADD COLUMN balance_usdt REAL DEFAULT 60.00"); } catch {}
+    try { this.db.exec('ALTER TABLE wallet_locks ADD COLUMN owner_pid INTEGER NOT NULL DEFAULT 0'); } catch {}
+    try { this.db.exec("ALTER TABLE user_accounts ADD COLUMN balance_usdt REAL DEFAULT 0"); } catch {}
     if (this.pgPool) {
-      this.pgPool.query("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS balance_usdt REAL DEFAULT 60.00").catch(() => {});
+      this.pgPool.query("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS balance_usdt REAL DEFAULT 0").catch(() => {});
     }
 
     try { this.db.exec("ALTER TABLE allowlist ADD COLUMN user_account TEXT DEFAULT 'default'"); } catch {}
@@ -221,15 +227,15 @@ export class Store {
   }
 
   // --- User Account Operations ---
-  getOrCreateUser(userAccount: string, initialBalance = 10.00): { accountId: string; balanceNear: number } {
+  getOrCreateUser(userAccount: string, initialBalance = 0): { accountId: string; balanceNear: number } {
     const acc = userAccount.trim().toLowerCase();
     const existing = this.db.prepare("SELECT * FROM user_accounts WHERE account_id=?").get(acc) as any;
     if (existing) {
       return { accountId: existing.account_id, balanceNear: Number(existing.balance_near) };
     }
-    this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?)").run(acc, `User ${acc}`, initialBalance, 60.00);
+    this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?)").run(acc, `User ${acc}`, initialBalance, 0);
     if (this.pgPool) {
-      this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id) DO NOTHING", [acc, `User ${acc}`, initialBalance, 60.00]).catch(() => {});
+      this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id) DO NOTHING", [acc, `User ${acc}`, initialBalance, 0]).catch(() => {});
     }
     // Seed user's personal allowlist with default specialized agents
     const defaultAgents = [
@@ -296,16 +302,16 @@ export class Store {
         return Number(row.balance_usdt);
       }
     } catch {}
-    return 60.00;
+    return 0;
   }
 
   setUserUsdtBalance(userAccount: string, balance: number): void {
     const acc = userAccount.trim().toLowerCase();
     const cleanBal = Math.max(0, balance);
     try {
-      this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_usdt=excluded.balance_usdt").run(acc, `User ${acc}`, 10.00, cleanBal);
+      this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_usdt=excluded.balance_usdt").run(acc, `User ${acc}`, 0, cleanBal);
       if (this.pgPool) {
-        this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT(account_id) DO UPDATE SET balance_usdt=EXCLUDED.balance_usdt", [acc, `User ${acc}`, 10.00, cleanBal]).catch(() => {});
+        this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT(account_id) DO UPDATE SET balance_usdt=EXCLUDED.balance_usdt", [acc, `User ${acc}`, 0, cleanBal]).catch(() => {});
       }
     } catch {}
   }
@@ -350,7 +356,7 @@ export class Store {
     if (row && typeof row.balance_near === 'number') {
       return row.balance_near;
     }
-    return 10.00;
+    return 0;
   }
 
   setTreasuryBalance(bal: number): void {
@@ -435,7 +441,7 @@ export class Store {
   async syncFromPostgres(): Promise<void> {
     if (!this.pgPool) return;
     try {
-      const uRes = await this.pgPool.query("SELECT account_id, label, balance_near, COALESCE(balance_usdt, 60.00) as balance_usdt FROM user_accounts");
+      const uRes = await this.pgPool.query("SELECT account_id, label, balance_near, COALESCE(balance_usdt, 0) as balance_usdt FROM user_accounts");
       for (const row of uRes.rows) {
         this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near, balance_usdt=excluded.balance_usdt").run(row.account_id, row.label, Number(row.balance_near), Number(row.balance_usdt));
       }

@@ -3,10 +3,14 @@ import OpenAI from 'openai';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { JsonRpcProvider } from 'near-api-js';
 import { Store } from './db.js';
-import { NearExecutor, loadNearConfig } from './near.js';
+import { loadNearConfig } from './near.js';
 import { runAutonomousMandate } from './runner.js';
+import { AgentWallet, validAccount } from './agent-wallet.js';
+import { WalletStore } from './wallet-store.js';
+import { verifyWalletRequest } from './wallet-auth.js';
+import { parseWalletCommand } from './wallet-command.js';
+import { createHash } from 'node:crypto';
 
 const PORT = 3000;
 const rootDir = path.resolve('.');
@@ -15,8 +19,8 @@ const dbPath = process.env.MANDATE_DB ?? (process.env.VERCEL ? path.join('/tmp',
 
 const store = new Store(dbPath);
 const nearCfg = loadNearConfig();
-const nearExecutor = new NearExecutor(nearCfg);
 const swapService = new AgentSwapService();
+const agentWallet = new AgentWallet(nearCfg, new WalletStore(store));
 const openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 function getMimeType(filePath: string): string {
@@ -31,28 +35,12 @@ function getMimeType(filePath: string): string {
   }
 }
 
-function formatNearErrorMessage(msg: string): string {
-  if (!msg) return 'Transaction failed on NEAR testnet.';
-  // Converts 18-30 digit yoctoNEAR integers into clean, readable NEAR numbers (e.g. 157809675022697300000000 -> 0.16 NEAR)
-  return msg.replace(/\b(\d{18,30})\b/g, (match) => {
-    try {
-      const yocto = BigInt(match);
-      const nearWhole = yocto / (10n ** 24n);
-      const remainder = yocto % (10n ** 24n);
-      const decimalStr = (remainder / (10n ** 20n)).toString().padStart(4, '0');
-      return `${nearWhole}.${decimalStr.slice(0, 2)} NEAR`;
-    } catch {
-      return match;
-    }
-  });
-}
-
 export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost:3000'}`);
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-mandate-account');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-mandate-account, x-mandate-timestamp, x-mandate-public-key, x-mandate-signature, x-mandate-auth-type, x-mandate-nonce');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -63,10 +51,59 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   const userAccountHeader = (req.headers['x-mandate-account'] as string) || url.searchParams.get('account');
   const userAccount = (userAccountHeader ? userAccountHeader.trim().toLowerCase() : 'default-user.testnet');
 
+  if (url.pathname.startsWith('/api/') && (!validAccount(userAccount) || (nearCfg.network === 'testnet' && userAccount.endsWith('.near')) || (nearCfg.network === 'mainnet' && userAccount.endsWith('.testnet')))) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'Invalid linked account for this network.' }));
+  }
+
   try {
-    await store.syncFromPostgres();
+    if (url.pathname.startsWith('/api/')) await store.syncFromPostgres();
   } catch {}
-  store.getOrCreateUser(userAccount, 10.00);
+  if (url.pathname.startsWith('/api/')) store.getOrCreateUser(userAccount, 0);
+
+  const json = (code: number, data: unknown) => {
+    res.writeHead(code, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(data));
+  };
+  if (url.pathname === '/api/wallet/config' && req.method === 'GET') {
+    return json(200, { network: nearCfg.network, authReceiver: nearCfg.accountId,
+      walletUrl: nearCfg.network === 'testnet' ? 'https://testnet.mynearwallet.com' : 'https://app.mynearwallet.com' });
+  }
+  if ((url.pathname === '/api/wallet' || url.pathname === '/api/treasury') && req.method === 'GET') {
+    try {
+      const snapshot = await agentWallet.snapshot(userAccount);
+      return json(200, { ...snapshot, formatted: Number(snapshot.balanceNear).toFixed(4) + ' NEAR',
+        userQuotaNear: snapshot.balanceNear, formattedUsdt: Number(snapshot.userUsdt).toFixed(2) + ' USDT', operations: await agentWallet.receipts.list(userAccount) });
+    } catch (e: any) { return json(503, { error: e.message }); }
+  }
+  if (['/api/wallet/deposit', '/api/wallet/deposit/confirm', '/api/wallet/execute', '/api/wallet/reconcile', '/api/wallet/resume', '/api/treasury', '/api/swap/execute'].includes(url.pathname) && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        if (url.pathname === '/api/wallet/deposit') {
+          if (!['NEAR', 'USDT'].includes(payload.asset)) throw new Error('Choose NEAR or USDT.');
+          return json(200, await agentWallet.prepareDeposit(userAccount, payload.asset, payload.amount));
+        }
+        if (url.pathname === '/api/wallet/deposit/confirm' || url.pathname === '/api/treasury') {
+          return json(200, { success: true, operation: await agentWallet.confirmDeposit(userAccount, payload.txHash) });
+        }
+        await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+        if (url.pathname === '/api/wallet/reconcile' || url.pathname === '/api/wallet/resume') {
+          const operation = url.pathname.endsWith('/reconcile') ? await agentWallet.reconcile(userAccount, payload.id) : await agentWallet.resumeSwap(userAccount, payload.id);
+          return json(200, { operation });
+        }
+        const request = url.pathname === '/api/swap/execute'
+          ? { id: payload.id, action: 'swap', asset: payload.asset || 'NEAR', amount: String(payload.inputNear), minOutput: payload.minOutputUsdt ? String(payload.minOutputUsdt) : undefined }
+          : payload;
+        if (request.action === 'send' && !store.isAllowed(request.recipient || '', userAccount)) throw new Error('Add this recipient to your payable allowlist first.');
+        const operation = await agentWallet.execute(userAccount, request);
+        return json(operation.status === 'confirmed' ? 200 : 409, { operation, status: operation.status, txHash: operation.txHashes.at(-1), explorerUrl: operation.txHashes.length ? agentWallet.explorer(operation.txHashes.at(-1)!) : null });
+      } catch (e: any) { return json(400, { error: e.message }); }
+    });
+    return;
+  }
 
   // 1. /api/accounts (GET list, POST create/switch)
   if (url.pathname === '/api/accounts') {
@@ -85,87 +122,20 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       req.on('data', c => { body += c; });
       req.on('end', () => {
         try {
-          const { accountId, displayName, initialBalance } = JSON.parse(body || '{}');
+          const { accountId } = JSON.parse(body || '{}');
           if (!accountId || typeof accountId !== 'string') {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'accountId is required' }));
           }
           const cleanId = accountId.trim().toLowerCase();
-          const user = store.getOrCreateUser(cleanId, displayName || cleanId);
-          if (initialBalance && !isNaN(Number(initialBalance))) {
-            store.setUserBalance(cleanId, Math.max(0, Number(initialBalance)));
-          }
+          if (!validAccount(cleanId)) throw new Error('Invalid NEAR account ID.');
+          const user = store.getOrCreateUser(cleanId, 0);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             success: true,
             account: cleanId,
             balanceNear: store.getUserBalance(cleanId).toFixed(2),
             user
-          }));
-        } catch (e: any) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
-    }
-  }
-
-  // 2. /api/treasury (GET live on-chain balance, POST fund)
-  if (url.pathname === '/api/treasury') {
-    if (req.method === 'GET') {
-      let liveOnchain = 0;
-      try {
-        const liveStr = await nearExecutor.balanceNear();
-        liveOnchain = parseFloat(liveStr);
-      } catch {}
-
-      const userBal = store.getUserBalance(userAccount);
-      const userUsdt = store.getUserUsdtBalance(userAccount);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({
-        accountId: nearCfg.accountId,
-        liveOnchainNear: liveOnchain.toFixed(2),
-        formattedOnchain: liveOnchain.toFixed(2) + ' NEAR',
-        userAccount,
-        userQuotaNear: userBal.toFixed(2),
-        balanceNear: userBal.toFixed(2),
-        formatted: userBal.toFixed(2) + ' NEAR',
-        userUsdt: userUsdt.toFixed(2),
-        formattedUsdt: userUsdt.toFixed(2) + ' USDT'
-      }));
-    }
-
-    if (req.method === 'POST') {
-      let body = '';
-      req.on('data', c => { body += c; });
-      req.on('end', async () => {
-        try {
-          const { amountNear, note, txHash } = JSON.parse(body || '{}');
-          const amt = parseFloat(amountNear);
-          if (isNaN(amt) || amt <= 0) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'Valid amountNear required' }));
-          }
-          const after = store.fundUserBalance(userAccount, amt, note || 'Treasury deposit');
-
-          let liveOnchain = 0;
-          try {
-            const liveStr = await nearExecutor.balanceNear();
-            liveOnchain = parseFloat(liveStr);
-          } catch {}
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            success: true,
-            userAccount,
-            userBalance: after.toFixed(2),
-            newBalance: after.toFixed(2),
-            balanceNear: after.toFixed(2),
-            formatted: after.toFixed(2) + ' NEAR',
-            liveOnchainNear: liveOnchain.toFixed(2),
-            formattedOnchain: liveOnchain.toFixed(2) + ' NEAR',
-            txHash: txHash || null
           }));
         } catch (e: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -187,13 +157,15 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     if (req.method === 'POST') {
       let body = '';
       req.on('data', c => { body += c; });
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
+          await verifyWalletRequest(agentWallet.provider, userAccount, req.method!, url.pathname, body, req.headers);
           const { accountId, label } = JSON.parse(body || '{}');
           if (!accountId) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'accountId is required' }));
           }
+          if (typeof accountId !== 'string' || !validAccount(accountId.trim().toLowerCase())) throw new Error('Invalid recipient account ID.');
           store.addToAllowlist(accountId.trim().toLowerCase(), label || 'Approved Recipient', userAccount);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, list: store.getAllowlist(userAccount) }));
@@ -208,8 +180,9 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     if (req.method === 'DELETE') {
       let body = '';
       req.on('data', c => { body += c; });
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
+          await verifyWalletRequest(agentWallet.provider, userAccount, req.method!, url.pathname, body, req.headers);
           const { accountId } = JSON.parse(body || '{}');
           if (!accountId) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -230,7 +203,12 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // 4. /api/ledger (GET accurately reflects confirmed payments & on-chain txs)
   if (url.pathname === '/api/ledger') {
     try {
-      const formatted = store.getLedger(userAccount);
+      const operations = await agentWallet.receipts.list(userAccount);
+      const walletRows = operations.map(op => ({ id: op.id, mandateId: 'agent-wallet', taskId: op.action, recipient: op.recipient || agentWallet.identity(userAccount).accountId,
+        amountDollars: op.asset === 'USDT' ? op.amount + ' Test USDT' : '—', amountNear: op.asset === 'NEAR' ? op.amount : '—', status: op.status,
+        onchain: op.status === 'confirmed', txHash: op.txHashes.at(-1) || null, note: `${op.action} ${op.amount} ${op.asset}${op.error ? ': ' + op.error : ''}`, createdAt: op.createdAt,
+        explorerUrl: op.txHashes.length ? agentWallet.explorer(op.txHashes.at(-1)!) : null }));
+      const formatted = [...walletRows, ...store.getLedger(userAccount)].sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0,50);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(formatted));
     } catch (e: any) {
@@ -306,7 +284,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   if (url.pathname === '/api/swap/history' && req.method === 'GET') {
     try {
-      const history = store.listSwaps(userAccount);
+      const swaps = (await agentWallet.receipts.list(userAccount)).filter(op => op.action === 'swap' && op.asset === 'NEAR').map(op => ({
+        id: op.id, inputNear: op.amount, outputAmount: Number(op.amount) * 5, exchangeRate: 5, destinationWallet: op.recipient,
+        status: op.status === 'confirmed' ? 'payout_confirmed' : op.status, payoutTxHash: op.status === 'confirmed' ? op.txHashes.at(-1) : null, createdAt: op.createdAt }));
+      const history = [...swaps, ...store.listSwaps(userAccount)];
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         userAccount,
@@ -316,41 +297,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: e.message }));
     }
-  }
-
-  if (url.pathname === '/api/swap/execute' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => { body += c; });
-    req.on('end', async () => {
-      try {
-        const { inputNear, minOutputUsdt, destinationWallet, note } = JSON.parse(body || '{}');
-        const amt = parseFloat(inputNear);
-        if (isNaN(amt) || amt <= 0) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Valid inputNear amount is required.' }));
-        }
-        if (!destinationWallet || typeof destinationWallet !== 'string') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Valid destinationWallet is required.' }));
-        }
-
-        const result = await swapService.executeSwap({
-          userAccount,
-          agentAccount: 'mandate-generis-analyst.testnet',
-          inputNear: amt,
-          minOutputUsdt: minOutputUsdt ? parseFloat(minOutputUsdt) : undefined,
-          destinationWallet,
-          note
-        }, store);
-
-        res.writeHead(result.status === 'confirmed' ? 200 : 400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      } catch (e: any) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
-    });
-    return;
   }
 
   // 6. /api/chat (Handles natural language directives & autonomous mandates)
@@ -370,114 +316,35 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const lower = prompt.toLowerCase();
 
       
-      // Case Swap USDT -> NEAR: e.g. "swap 1 usdt for near", "exchange 5 usdt to near"
-      const swapUsdtMatch = lower.match(/(?:swap|exchange)\s+([0-9.]+)\s*(?:test\s+)?usdt(?:\s+(?:for|to)\s+near)?(?:\s+(?:to|for)\s+([a-z0-9._-]+))?/i);
-      if (swapUsdtMatch) {
-        const amtUsdt = parseFloat(swapUsdtMatch[1]);
-        const targetDest = swapUsdtMatch[2] ? swapUsdtMatch[2].trim().toLowerCase() : userAccount;
-        if (!isNaN(amtUsdt) && amtUsdt > 0) {
-          const currentUsdt = store.getUserUsdtBalance(userAccount);
-          if (currentUsdt < amtUsdt) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({
-              type: 'text',
-              message: `❌ **Insufficient USDT Balance:** You requested to swap **${amtUsdt} USDT**, but your available balance is **${currentUsdt.toFixed(2)} USDT**.`
-            }));
+      try {
+        const command = parseWalletCommand(prompt);
+        if (command) {
+          if (command.action === 'deposit') {
+            const deposit = await agentWallet.prepareDeposit(userAccount, command.asset, command.amount);
+            return json(200, { type: 'wallet_deposit', deposit, message: `Deposit **${command.amount} ${command.asset}** into your Mandate agent wallet. Sign the transfer in your linked wallet to complete it.` });
           }
-          const outputNear = Number((amtUsdt / 5.0).toFixed(2));
-          store.deductUserUsdtBalance(userAccount, amtUsdt);
-          const afterNear = store.fundUserBalance(userAccount, outputNear, `Swap ${amtUsdt} Test USDT -> ${outputNear} NEAR`);
-          const afterUsdt = store.getUserUsdtBalance(userAccount);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            type: 'text',
-            treasuryBalance: afterNear.toFixed(2),
-            balanceNear: afterNear,
-            userUsdt: afterUsdt,
-            message: `✅ **Agent Swap & Payout Confirmed!**\n\n` +
-              `• **NEAR Received:** **${outputNear} NEAR**\n` +
-              `• **Test USDT Swapped:** **${amtUsdt} USDT**\n` +
-              `• **Rate:** 5 Test USDT = 1 NEAR (Demo Rate)\n` +
-              `• **Recipient Account:** \`${targetDest}\`\n\n` +
-              `📊 **Updated Wallet Balances:**\n` +
-              `• **NEAR Available:** **${afterNear.toFixed(2)} NEAR**\n` +
-              `• **Test USDT Available:** **${afterUsdt.toFixed(2)} USDT**`
-          }));
-        }
-      }
-
-      // Case Swap: Agent Swap & Payout via chat
-      const swapMatch = lower.match(/(?:swap|exchange)\s+([0-9.]+)\s*near(?:\s+(?:for|to)\s+(?:test\s+)?usdt)?(?:\s+(?:to|for)\s+([a-z0-9._-]+))?/i);
-      if (swapMatch) {
-        const amt = parseFloat(swapMatch[1]);
-        const targetDest = swapMatch[2] ? swapMatch[2].trim().toLowerCase() : userAccount;
-        if (!isNaN(amt) && amt > 0) {
-          try {
-            const swapResult = await swapService.executeSwap({
-              userAccount,
-              agentAccount: 'mandate-generis-analyst.testnet',
-              inputNear: amt,
-              destinationWallet: targetDest,
-              note: `Chat directive swap of ${amt} NEAR for Test USDT`
-            }, store);
-
-            if (swapResult.status === 'confirmed') {
-              const currentBal = store.getUserBalance(userAccount);
-              const currentUsdt = store.getUserUsdtBalance(userAccount);
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              return res.end(JSON.stringify({
-                type: 'text',
-                treasuryBalance: currentBal.toFixed(2),
-                balanceNear: currentBal,
-                userUsdt: currentUsdt,
-                message: `✅ **Agent Swap & Payout Confirmed!**\n\n` +
-                  `• **NEAR Spent:** **${amt} NEAR**\n` +
-                  `• **Test USDT Received:** **${swapResult.outputUsdt} USDT**\n` +
-                  `• **Exchange Rate:** 1 NEAR = ${swapResult.exchangeRate} Test USDT (Demo Rate)\n` +
-                  `• **Destination Wallet:** \`${swapResult.destinationWallet}\`\n` +
-                  `• **Explorer Receipt:** [View on NearBlocks](https://testnet.nearblocks.io/txns/${swapResult.payoutTxHash})\n\n` +
-                  `*Notice: ${TEST_USDT_DISCLAIMER}*`
-              }));
-            } else {
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              return res.end(JSON.stringify({
-                type: 'text',
-                message: `❌ **Agent Swap Failed:** ${swapResult.error || 'Unknown error'}\n\nPlease verify your destination wallet and available balance.`
-              }));
-            }
-          } catch (swapErr: any) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({
-              type: 'text',
-              message: `❌ **Swap Error:** ${swapErr?.message || swapErr}`
-            }));
+          await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+          if (command.action === 'send' && !store.isAllowed(command.recipient!, userAccount)) {
+            if (/add\s+to\s+allowlist|approve/i.test(lower)) store.addToAllowlist(command.recipient!, 'User approved payee', userAccount);
+            else return json(200, { type: 'text', message: `Add \`${command.recipient}\` to your payable allowlist before sending funds.` });
           }
+          const id = 'chat-' + createHash('sha256').update(userAccount + body + String(req.headers['x-mandate-signature'])).digest('hex');
+          const operation = await agentWallet.execute(userAccount, { ...command, id });
+          const receipts = operation.txHashes.map(hash => `[View transaction](${agentWallet.explorer(hash)})`).join(' · ');
+          return json(200, { type: 'text', operation,
+            message: operation.status === 'confirmed'
+              ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? 'The swapped funds remain in your agent wallet. This uses the testnet demonstration rate of 1 NEAR = 5 Test USDT.\n\n' : ''}${receipts}`
+              : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
         }
-      }
-
-      // Case A: Fund Agentic Treasury Wallet & Incoming Balance / Faucet Notifications
-      const fundMatch = lower.match(/(?:fund(?:\s+treasury)?\s+(?:with\s+)?|add\s+|deposit\s+|(?:i\s+)?(?:have\s+)?(?:received|got|claimed)\s+)([0-9.]+)\s*near/i);
-
-      if (fundMatch) {
-        const amt = parseFloat(fundMatch[1]);
-        if (!isNaN(amt) && amt > 0) {
-          const after = store.fundUserBalance(userAccount, amt, `Treasury credit of ${amt} NEAR for ${userAccount}`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            type: 'treasury_funded',
-            amountNear: amt,
-            newBalance: after.toFixed(2),
-            balanceNear: after,
-            message: `✅ **Funds Credited to Mandate Agentic Wallet!**\n\n` +
-              `• **Received:** **+${amt} NEAR**\n` +
-              `• **Agentic Treasury Wallet:** \`${userAccount}\`\n` +
-              `• **Total Available Balance:** **${after.toFixed(2)} NEAR**\n\n` +
-              `Your autonomous agents can now spend from this quota under your defined spending limits, policy allowlists, and verification guardrails.`
-          }));
+        if (/^(?:please\s+)?(?:mandate[, :]*)?\s*(?:stake|unstake|withdraw|deposit|swap|exchange|send|transfer|pay|fund)\b/i.test(lower)) {
+          return json(200, { type: 'text', message: 'Use a single command such as **Deposit 2 NEAR**, **Withdraw 5 USDT**, **Stake 1 NEAR**, **Unstake 3 USDT**, or **Send 2 USDT to alice.testnet**.' });
         }
-      }
+      } catch (e: any) { return json(200, { type: 'text', message: e.message }); }
 
       // Case A.2: Faucet Queries & Directives
+      if (/\b(?:received|got|claimed)\s+[0-9.]+\s*(?:near|usdt)\b/i.test(lower)) {
+        return json(200, { type: 'text', message: 'Funds received in your linked wallet stay there until you deposit them into your agent wallet. Use **Deposit 2 NEAR** or **Deposit 5 USDT** to sign a transfer.' });
+      }
       if (/\b(?:faucet|claim near|get testnet near|free near|near faucet)\b/i.test(lower)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
@@ -488,156 +355,16 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         }));
       }
 
-      // Case B: Balance query & Agentic Wallet Overview
-      if (/balance|how much (?:do i have|near)|treasury balance|check balance|wallet info/i.test(lower)) {
-        const bal = store.getUserBalance(userAccount);
-        const usdt = store.getUserUsdtBalance(userAccount);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'text',
-          balanceNear: bal,
-          userUsdt: usdt,
-          message: `🏛️ **Mandate Agentic Wallet Treasury:**\n\n` +
-            `• **Connected Account:** \`${userAccount}\`\n` +
-            `• **NEAR Available:** **${bal.toFixed(2)} NEAR**\n` +
-            `• **Test USDT Available:** **${usdt.toFixed(2)} USDT**\n\n` +
-            `The treasury acts as an autonomous agentic smart wallet. Autonomous tasks can draw funds only when spending guardrails and verification checks pass.`
-        }));
-      }
-
-      // Case C: Direct Payment to recipient
-      const payMatch = lower.match(/(?:pay|transfer|send)\s+([0-9.]+)\s*near\s+(?:to\s+)?([a-z0-9._-]+)/i);
-      if (payMatch) {
-        const amountNear = parseFloat(payMatch[1]);
-        const recipient = payMatch[2].trim().toLowerCase();
-        const shouldAddAllowlist = /add\s+to\s+allowlist|approve/i.test(lower);
-
-        if (isNaN(amountNear) || amountNear <= 0) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            type: 'text',
-            message: 'Please specify a valid payment amount in NEAR, for example: "Pay 7 NEAR to zeal.testnet".'
-          }));
-        }
-
-        let isAllowed = store.isAllowed(recipient, userAccount);
-        let addedNow = false;
-
-        if (!isAllowed) {
-          if (shouldAddAllowlist) {
-            store.addToAllowlist(recipient, 'User Added Payee', userAccount);
-            isAllowed = true;
-            addedNow = true;
-          } else {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({
-              type: 'allowlist_warning',
-              recipient,
-              amountNear,
-              message: '⚠️ **Recipient Not Allowed:** `' + recipient + '` is not on your payable allowlist.\n\n' +
-                'To approve and pay, you can say:\n' +
-                '*"Pay ' + amountNear + ' NEAR to ' + recipient + ' (add to allowlist)"*\n\n' +
-                'Or add them directly in the **Payable Allowlist** tab.'
-            }));
-          }
-        }
-
-        // Check if sufficient treasury balance
-        const currentBal = store.getUserBalance(userAccount);
-        if (currentBal < amountNear) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            type: 'payment_failed',
-            recipient,
-            amountNear,
-            error: 'INSUFFICIENT_FUNDS',
-            message: '❌ **Insufficient Treasury Funds:** Requested payment of ' + amountNear + ' NEAR exceeds current balance of ' + currentBal.toFixed(2) + ' NEAR.\n\nPlease fund your treasury (e.g. *"Fund treasury with 10 NEAR"*) before continuing.'
-          }));
-        }
-
-        // Execute payment on NEAR testnet (Strictly live on-chain, zero mocks)
+      if (/balance|wallet info|staking position/i.test(lower)) {
         try {
-          const amountCents = BigInt(Math.round(amountNear * 1000));
-          let txHash = '';
-
-          try {
-            const executionResult = await nearExecutor.execute({
-              recipient,
-              amountCents,
-              mandateId: 'direct-payment',
-              taskId: `pay-${Date.now()}`,
-              evidenceHash: 'direct-user-transfer'
-            });
-            if (!executionResult || !executionResult.txHash) {
-              throw new Error("NEAR network did not return a valid transaction hash.");
-            }
-            txHash = executionResult.txHash;
-          } catch (netErr: any) {
-            let msg = '❌ **NEAR Testnet Execution Error:** ' + formatNearErrorMessage(netErr.message) + '\n\nPlease verify network connectivity or recipient account validity.';
-            if (netErr.message && netErr.message.includes('Not enough balance for mandate-generis-treasury.testnet')) {
-              msg = '❌ **Agent Treasury Account Low on On-Chain Testnet Funds:**\n\n' +
-                '• Your connected wallet (`' + userAccount + '`) has sufficient quota.\n' +
-                '• However, Mandate\'s autonomous signing treasury (`mandate-generis-treasury.testnet`) currently holds only **0.04 NEAR** on NEAR Testnet due to previous demo transactions.\n\n' +
-                '⚡ **To fund the treasury directly:**\n' +
-                'Send 2–5 Testnet NEAR from your wallet to `mandate-generis-treasury.testnet` via [MyNearWallet (Click here)](https://testnet.mynearwallet.com/send-money?recipient=mandate-generis-treasury.testnet&amount=3) or Meteor Wallet.\n\n' +
-                'Once funded, your on-chain payment of ' + amountNear + ' NEAR to `' + recipient + '` will execute immediately!';
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({
-              type: 'payment_failed',
-              recipient,
-              amountNear,
-              error: netErr.message,
-              message: msg
-            }));
-          }
-
-          // Record in DB payments with userAccount tag
-          const paymentId = store.recordPayment({
-            mandateId: 'direct-payment',
-            taskId: `pay-${Date.now()}`,
-            recipient,
-            amount: amountCents,
-            status: 'confirmed',
-            onchain: true,
-            network: 'testnet',
-            txHash: txHash,
-            note: 'Direct on-chain transfer of ' + amountNear + ' NEAR to ' + recipient,
-            userAccount
-          });
-
-          // Accurately deduct from user treasury balance
-          const afterBal = store.deductUserBalance(userAccount, amountNear, 'Transfer to ' + recipient, txHash);
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            type: 'payment_confirmed',
-            paymentId,
-            recipient,
-            amountNear,
-            addedToAllowlist: addedNow,
-            txHash: txHash,
-            explorerUrl: `https://testnet.nearblocks.io/txns/${txHash}`,
-            remainingBalance: afterBal.toFixed(2),
-            message: 'Payment of **' + amountNear + ' NEAR** to `' + recipient + '` has been **confirmed on-chain**.\n\n' +
-              '• **Transaction Hash:** `' + txHash + '`\n' +
-              '• **Explorer Receipt:** [View on NearBlocks](https://testnet.nearblocks.io/txns/' + txHash + ')\n' +
-              '• **Remaining Treasury Balance:** ' + afterBal.toFixed(2) + ' NEAR.'
-          }));
-        } catch (err: any) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({
-            type: 'payment_failed',
-            recipient,
-            amountNear,
-            error: err.message,
-            message: '❌ Payment of ' + amountNear + ' NEAR to `' + recipient + '` failed: ' + formatNearErrorMessage(err.message)
-          }));
-        }
+          const wallet = await agentWallet.snapshot(userAccount);
+          return json(200, { type: 'text', ...wallet,
+            message: `**Mandate agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${Number(wallet.userUsdt).toFixed(2)} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
+        } catch (e: any) { return json(503, { type: 'text', message: e.message }); }
       }
 
       // Case D: View Allowlist
-      if (/allowlist|payable|who can i pay|approved accounts/i.test(lower)) {
+      if (/allowlist|payable|who can i pay|approved accounts/i.test(lower) && !/^add\s/i.test(lower)) {
         const list = store.getAllowlist(userAccount);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
@@ -650,6 +377,8 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       // Case E: Add to Allowlist without paying
       const addMatch = lower.match(/add\s+([a-z0-9._-]+)\s+to\s+(?:my\s+)?allowlist/i);
       if (addMatch) {
+        try { await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers); }
+        catch (e: any) { return json(400, { error: e.message, type: 'text', message: e.message }); }
         const newAcc = addMatch[1].trim().toLowerCase();
         store.addToAllowlist(newAcc, 'Approved Payee', userAccount);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -705,7 +434,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           }
         }
 
-        const currentBal = store.getUserBalance(userAccount);
         const greetingMsg = "Hello! I am **Mandate**, your autonomous business agent orchestrated on **NEAR Protocol**.\n\n" +
           "I coordinate four specialized autonomous agents to execute complex commercial tasks under strict spending limits:\n" +
           "- 🧭 **Mandate Orchestrator:** Analyzes directives, sets budgets, and decomposes workflows.\n" +
@@ -718,14 +446,12 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           "- *\"Find three suppliers of 100 office chairs, compare their prices and delivery terms, and prepare a recommendation. You may spend up to $20 on research, but cannot purchase without approval.\"*\n" +
           "- *\"Research competitor pricing and corridor coverage for cross-border stablecoin payments in LATAM and Africa.\"*\n" +
           "- *\"Audit past purchases and reconcile all testnet transactions.\"*\n\n" +
-          "**Your Treasury:** `" + userAccount + "` · **" + currentBal.toFixed(2) + " NEAR** available.\n" +
-          "You can fund your treasury by typing *\"Fund treasury with 10 NEAR\"* or clicking **Fund Treasury**.";
+          "Deposit NEAR or Test USDT into your agent wallet, then swap, send, stake, or unstake with one command.";
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
           type: 'greeting',
-          message: greetingMsg,
-          treasuryBalance: currentBal.toFixed(2)
+          message: greetingMsg
         }));
       }
 
@@ -739,31 +465,22 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
       // Case H: Autonomous Business Mandate Execution
       try {
+        await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+        const requestId = createHash('sha256').update(userAccount + body + String(req.headers['x-mandate-signature'])).digest('hex');
         const result = await runAutonomousMandate({
+          executor: { label: 'Mandate agent wallet', execute: async args => {
+            if (!store.isAllowed(args.recipient, userAccount)) throw new Error('Research recipient is not on your payable allowlist.');
+            const operation = await agentWallet.execute(userAccount, { id: 'research-' + requestId, action: 'send', asset: 'NEAR', amount: String(Number(args.amountCents) / 1000), recipient: args.recipient });
+            if (operation.status !== 'confirmed') throw new Error(operation.error || 'Wallet transaction needs review.');
+            return { network: nearCfg.network, onchain: true, txHash: operation.txHashes.at(-1)! };
+          } },
           goal: prompt.length > 5 ? prompt : undefined,
           userAccount,
           executorMode: 'near', // Live on-chain NEAR testnet execution
           simulateAttack: true
         });
 
-        // If mandate made an on-chain payout, deduct from user treasury accurately and record in ledger
-        if (result && result.payout && result.payout.status === 'confirmed') {
-          store.deductUserBalance(userAccount, 0.40, 'Mandate research fee payout: ' + result.payout.recipient, result.payout.txHash || undefined);
-          store.recordPayment({
-            mandateId: result.mandate.id,
-            taskId: result.deliverable.taskId,
-            recipient: result.payout.recipient,
-            amount: 400n, // $4.00
-            status: 'confirmed',
-            onchain: true,
-            network: 'testnet',
-            txHash: result.payout.txHash ?? null,
-            note: 'Disbursed research fee for verified ' + result.mandate.domain + ' deliverable',
-            userAccount
-          });
-        }
-
-        const bal = store.getUserBalance(userAccount);
+        const bal = Number(await agentWallet.nativeBalance(agentWallet.identity(userAccount).accountId)) / 1e24;
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

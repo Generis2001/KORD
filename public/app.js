@@ -93,7 +93,7 @@ const toastNotify = document.getElementById('toastNotify');
 function getApiHeaders() {
   return {
     'Content-Type': 'application/json',
-    'x-mandate-account': currentAccount
+    ...(currentAccount ? { 'x-mandate-account': currentAccount } : {})
   };
 }
 
@@ -142,13 +142,9 @@ function updateWalletUI() {
     if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'none';
     if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'block';
     if (sidebarAccountName) sidebarAccountName.textContent = connectedWallet;
-    const cachedNear = localStorage.getItem('mandate_bal_near_' + connectedWallet);
-    const cachedUsdt = localStorage.getItem('mandate_bal_usdt_' + connectedWallet);
-    const sNear = document.getElementById('sidebarNearBalance');
-    const sUsdt = document.getElementById('sidebarUsdtBalance');
-    if (sNear && cachedNear) sNear.textContent = cachedNear;
-    if (sUsdt && cachedUsdt) sUsdt.textContent = cachedUsdt;
-    loadConnectedWalletBalance();
+    agentSnapshot = null;
+    for (const id of ['sidebarNearBalance', 'sidebarUsdtBalance', 'linkedNearBalance', 'linkedUsdtBalance']) document.getElementById(id).textContent = '—';
+    document.getElementById('sidebarAgentCard').style.display = 'block';
     loadTreasuryBalance();
   } else {
     currentAccount = null;
@@ -158,117 +154,168 @@ function updateWalletUI() {
     if (walletStatusDot) walletStatusDot.classList.remove('online');
     if (walletBtnText) walletBtnText.textContent = 'Connect wallet';
     if (walletConnectedCard) walletConnectedCard.style.display = 'none';
+    document.getElementById('sidebarAgentCard').style.display = 'none';
+    agentSnapshot = null;
     if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'flex';
     if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'none';
   }
 }
 
-async function loadConnectedWalletBalance() {
-  if (!connectedWallet) return;
-  try {
-    const res = await fetch('/api/treasury?account=' + encodeURIComponent(connectedWallet));
-    const data = await res.json();
-    if (data) {
-      if (modalConnectedBalance) {
-        modalConnectedBalance.textContent = data.formatted || 'Connected';
-      }
-      const sidebarNearBalance = document.getElementById('sidebarNearBalance');
-      if (sidebarNearBalance && data.balanceNear !== undefined) {
-        sidebarNearBalance.textContent = Number(data.balanceNear).toFixed(2);
-      }
-      const sidebarUsdtBalance = document.getElementById('sidebarUsdtBalance');
-      if (sidebarUsdtBalance && data.userUsdt !== undefined) {
-        sidebarUsdtBalance.textContent = Number(data.userUsdt).toFixed(2);
-      }
-    }
-  } catch {}
-}
-
-// Fetch Live On-Chain Treasury Balance
+let agentSnapshot = null;
+let collectingUnstaked = false;
+async function loadConnectedWalletBalance() { return loadTreasuryBalance(); }
 async function loadTreasuryBalance() {
   if (!connectedWallet) return;
+  const owner = connectedWallet;
   try {
-    const res = await fetch('/api/treasury', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/wallet', { headers: getApiHeaders() });
     const data = await res.json();
-    if (data) {
-      if (data.formatted) {
-        updateTreasuryUI(data.formatted);
-      }
-      const sidebarNearBalance = document.getElementById('sidebarNearBalance');
-      if (sidebarNearBalance && data.balanceNear !== undefined) {
-        sidebarNearBalance.textContent = Number(data.balanceNear).toFixed(2);
-      }
-      const sidebarUsdtBalance = document.getElementById('sidebarUsdtBalance');
-      if (sidebarUsdtBalance && data.userUsdt !== undefined) {
-        sidebarUsdtBalance.textContent = Number(data.userUsdt).toFixed(2);
+    if (!res.ok) throw new Error(data.error || 'Could not refresh wallet balances.');
+    if (connectedWallet !== owner) return;
+    agentSnapshot = data;
+    const recovery = document.getElementById('agentWalletRecovery');
+    recovery.replaceChildren();
+    for (const op of data.operations.filter(op => ['pending', 'needs_review', 'funding_confirmed'].includes(op.status))) {
+      const row = document.createElement('div');
+      row.textContent = op.action + ' ' + op.amount + ' ' + op.asset + ': ' + op.status.replaceAll('_', ' ') + ' ';
+      const button = document.createElement('button');
+      button.className = 'btn-subtle';
+      button.textContent = op.status === 'funding_confirmed' ? 'Resume swap payout' : 'Check on-chain status';
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const res = await mandateWallet.fetch('/api/wallet/' + (op.status === 'funding_confirmed' ? 'resume' : 'reconcile'), { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: op.id }) });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error);
+          document.getElementById('agentWalletResult').textContent = 'Transaction status: ' + result.operation.status.replaceAll('_', ' ');
+          await loadTreasuryBalance();
+        } catch (error) { document.getElementById('agentWalletResult').textContent = error.message; }
+        finally { button.disabled = false; }
+      });
+      row.appendChild(button); recovery.appendChild(row);
+    }
+    updateTreasuryUI(data.formatted);
+    const values = { sidebarNearBalance: Number(data.balanceNear).toFixed(4), sidebarUsdtBalance: Number(data.userUsdt).toFixed(2),
+      linkedNearBalance: Number(data.linked.near).toFixed(4), linkedUsdtBalance: Number(data.linked.usdt).toFixed(2),
+      modalConnectedBalance: Number(data.linked.near).toFixed(4) + ' NEAR', agentNearAvailable: Number(data.balanceNear).toFixed(4), agentUsdtAvailable: Number(data.userUsdt).toFixed(2),
+      agentNearStaked: Number(data.staking.NEAR.staked).toFixed(4), agentUsdtStaked: Number(data.staking.USDT.staked).toFixed(2),
+      agentNearPending: Number(data.staking.NEAR.unstaked).toFixed(4), agentUsdtPending: Number(data.staking.USDT.unstaked).toFixed(2) };
+    for (const [id, value] of Object.entries(values)) { const el = document.getElementById(id); if (el) el.textContent = value; }
+    const address = document.getElementById('agentWalletAddress');
+    address.textContent = data.accountId;
+    address.href = 'https://' + (data.network === 'testnet' ? 'testnet.' : '') + 'nearblocks.io/address/' + data.accountId;
+    const authorization = document.getElementById('authorizeAgentWalletBtn');
+    authorization.style.display = mandateWallet.authorized(owner) ? 'none' : 'block';
+    if (swapDestinationWallet) swapDestinationWallet.value = data.accountId;
+    updateAgentAction();
+    // One unstake mandate authorizes collection after the cooldown; no second command is needed.
+    if (!collectingUnstaked && mandateWallet.authorized(owner)) {
+      const toCollect = ['NEAR', 'USDT'].filter(asset => data.staking[asset].available && data.operations.some(op => op.action === 'unstake' && op.asset === asset && op.status === 'confirmed'));
+      if (toCollect.length) {
+        collectingUnstaked = true;
+        try {
+          for (const asset of toCollect) {
+            if (connectedWallet !== owner) break;
+            const result = await mandateWallet.fetch('/api/wallet/execute', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: 'claim-' + crypto.randomUUID(), action: 'claim', asset, amount: data.staking[asset].withdrawable }) });
+            const receipt = await result.json();
+            if (result.ok) showToast('Unstaked ' + asset + ' returned to your agent wallet');
+            else throw new Error(receipt.error || receipt.operation?.error || 'Unstaked withdrawal needs review.');
+          }
+        } finally { collectingUnstaked = false; }
       }
     }
   } catch (err) {
-    console.error('Failed to load treasury balance', err);
+    console.error('Failed to load agent wallet', err);
+    const status = document.getElementById('agentWalletResult');
+    if (status) status.textContent = err.message;
   }
 }
 
 // Check if returning from MyNearWallet redirect
-function checkWalletCallback() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const txHashes = urlParams.get('transactionHashes');
-  const accountId = urlParams.get('account_id');
-
+async function checkWalletCallback() {
+  const params = new URLSearchParams(location.search);
+  const accountId = params.get('account_id');
   if (accountId) {
     connectedWallet = accountId;
+    currentAccount = accountId;
     localStorage.setItem('mandate_connected_wallet', accountId);
     updateWalletUI();
   }
-
-  if (txHashes) {
-    showToast('On-chain deposit confirmed! Tx: ' + txHashes.slice(0, 10) + '...');
-    // Clean up URL
-    window.history.replaceState({}, document.title, window.location.pathname);
+  const hashes = params.get('transactionHashes');
+  if (hashes && connectedWallet) {
+    for (const txHash of hashes.split(',')) {
+      try {
+        const res = await mandateWallet.fetch('/api/wallet/deposit/confirm', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ txHash }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showToast('Agent wallet deposit confirmed');
+      } catch (err) { showToast('Deposit verification: ' + err.message); }
+    }
     loadTreasuryBalance();
     loadLedger();
   }
+  if (params.get('errorCode') || params.get('wallet_error')) showToast('Wallet action was cancelled or rejected.');
+  if (accountId || hashes || params.get('errorCode') || params.get('wallet_error')) history.replaceState({}, document.title, location.pathname);
 }
 
-// Direct Web3 Send via MyNearWallet
-window.sendOnchainNear = function(amount) {
-  const treasuryAccount = 'mandate-generis-treasury.testnet';
-  const redirectUrl = encodeURIComponent(window.location.origin + window.location.pathname);
-  const myNearUrl = 'https://testnet.mynearwallet.com/send-money?recipient=' + treasuryAccount + '&amount=' + amount + '&redirectUrl=' + redirectUrl;
-  window.open(myNearUrl, '_blank');
-};
-
-// Fund Treasury Actions
-window.fundDirectly = async function(amount) {
-  try {
-    const res = await fetch('/api/treasury', {
-      method: 'POST',
-      headers: getApiHeaders(),
-      body: JSON.stringify({ amountNear: amount, note: 'Treasury deposit from ' + (connectedWallet || currentAccount) })
-    });
-    const data = await res.json();
-    if (data.success) {
-      updateTreasuryUI(data.formatted);
-      showToast('Funded +' + amount + ' NEAR to ' + currentAccount);
-      fundModal.classList.remove('open');
-      loadLedger();
-    }
-  } catch (err) {
-    alert('Deposit failed: ' + err.message);
-  }
-};
-
+function updateAgentAction() {
+  const action = document.getElementById('agentWalletAction').value;
+  const asset = document.getElementById('agentWalletAsset').value;
+  const labels = { deposit: 'Deposit', withdraw: 'Withdraw', stake: 'Stake', unstake: 'Unstake', claim: 'Withdraw unstaked' };
+  confirmFundBtn.textContent = labels[action] + ' ' + asset;
+  const explanations = {
+    deposit: 'Sign the deposit in your linked wallet. Deposit NEAR first to activate the agent wallet and cover gas.',
+    withdraw: 'Send funds from your agent wallet back to ' + (connectedWallet || 'your linked wallet') + '.',
+    stake: 'Stake from your agent wallet with Mandate’s staking provider.',
+    unstake: 'Start unstaking. Funds are collected after the provider cooldown while your authorized workspace is open.',
+    claim: 'Withdraw funds whose staking cooldown has finished into your agent wallet.'
+  };
+  const pos = agentSnapshot?.staking[asset];
+  document.getElementById('agentWalletActionHelp').textContent = ['stake', 'unstake', 'claim'].includes(action) && pos && !pos.configured
+    ? asset + ' staking will be available after provider setup.' : explanations[action];
+}
+async function depositToAgent(amount, asset = 'NEAR') {
+  const res = await mandateWallet.fetch('/api/wallet/deposit', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ amount: String(amount), asset }) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error);
+  return mandateWallet.signDeposit(data);
+}
+window.sendOnchainNear = amount => depositToAgent(amount).catch(err => showToast(err.message));
+window.fundDirectly = window.sendOnchainNear;
+for (const id of ['agentWalletAction', 'agentWalletAsset']) document.getElementById(id).addEventListener('change', updateAgentAction);
+document.getElementById('authorizeAgentWalletBtn').addEventListener('click', () => mandateWallet.authorize().catch(err => showToast(err.message)));
+document.getElementById('copyAgentAddressBtn').addEventListener('click', async () => {
+  if (!agentSnapshot) return;
+  try { await navigator.clipboard.writeText(agentSnapshot.accountId); showToast('Agent wallet address copied'); }
+  catch { showToast('Select the wallet address to copy it'); }
+});
+function openAgentWallet() {
+  if (!connectedWallet) { walletModal.classList.add('open'); return; }
+  fundModal.classList.add('open');
+  loadTreasuryBalance();
+}
+document.getElementById('manageAgentWalletBtn').addEventListener('click', openAgentWallet);
 if (confirmFundBtn) confirmFundBtn.addEventListener('click', async () => {
-  const val = parseFloat(customFundInput.value);
-  if (isNaN(val) || val <= 0) {
-    alert('Please enter a valid NEAR amount');
-    return;
-  }
+  const amount = customFundInput.value.trim();
+  const action = document.getElementById('agentWalletAction').value;
+  const asset = document.getElementById('agentWalletAsset').value;
+  const status = document.getElementById('agentWalletResult');
+  if (!amount || Number(amount) <= 0) { status.textContent = 'Enter a positive amount.'; return; }
   confirmFundBtn.disabled = true;
-  confirmFundBtn.textContent = 'Depositing...';
-  await window.fundDirectly(val);
-  customFundInput.value = '';
-  confirmFundBtn.disabled = false;
-  confirmFundBtn.textContent = 'Deposit Funds';
+  status.textContent = 'Processing…';
+  try {
+    if (action === 'deposit') await depositToAgent(amount, asset);
+    else {
+      const res = await mandateWallet.fetch('/api/wallet/execute', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: crypto.randomUUID(), action, asset, amount }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.operation?.error || 'Transaction needs review.');
+      status.innerHTML = escapeHtml(action === 'unstake' ? 'Unstaking started. Collection follows the provider cooldown.' : 'Transaction confirmed.') +
+        (data.explorerUrl ? ' <a href="' + escapeHtml(data.explorerUrl) + '" target="_blank" rel="noopener noreferrer">View receipt ↗</a>' : '');
+    }
+    await loadTreasuryBalance();
+    loadLedger();
+  } catch (err) { status.textContent = err.message; }
+  finally { confirmFundBtn.disabled = false; updateAgentAction(); }
 });
 
 // Modal Toggles
@@ -284,6 +331,7 @@ if (closeWalletModal) {
 
 if (disconnectWalletBtn) {
   disconnectWalletBtn.addEventListener('click', () => {
+    mandateWallet.disconnect(connectedWallet);
     connectedWallet = null;
     localStorage.removeItem('mandate_connected_wallet');
     updateWalletUI();
@@ -291,12 +339,7 @@ if (disconnectWalletBtn) {
   });
 }
 
-if (connectMyNearWalletBtn) {
-  connectMyNearWalletBtn.addEventListener('click', () => {
-    const redirectUrl = encodeURIComponent(window.location.href);
-    window.location.href = 'https://testnet.mynearwallet.com/?redirectUrl=' + redirectUrl;
-  });
-}
+if (connectMyNearWalletBtn) connectMyNearWalletBtn.addEventListener('click', () => mandateWallet.authorize().catch(err => showToast(err.message)));
 
 if (connectMeteorWalletBtn) {
   connectMeteorWalletBtn.addEventListener('click', async () => {
@@ -323,7 +366,9 @@ if (confirmManualWalletBtn) {
   confirmManualWalletBtn.addEventListener('click', () => {
     const acc = (manualWalletInput.value || '').trim().toLowerCase();
     if (!acc) return;
-    connectedWallet = acc.endsWith('.testnet') ? acc : acc + '.testnet';
+    const linkedId = /^[a-f0-9]{64}$/.test(acc) || acc.endsWith('.testnet') ? acc : acc + '.testnet';
+    if (!/^[a-f0-9]{64}$/.test(linkedId) && !/^(?=.{2,64}$)[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(linkedId)) { showToast('Enter a valid NEAR account ID'); return; }
+    connectedWallet = linkedId;
     currentAccount = connectedWallet;
     localStorage.setItem('mandate_connected_wallet', connectedWallet);
     localStorage.setItem('mandate_current_account', currentAccount);
@@ -332,14 +377,13 @@ if (confirmManualWalletBtn) {
     walletModal.classList.remove('open');
     showToast('Linked wallet: ' + connectedWallet);
     loadTreasuryBalance();
-    loadConversations();
+    loadConversationsList();
   });
 }
 
 if (openFundModalBtn) {
   openFundModalBtn.addEventListener('click', () => {
-    fundModal.classList.add('open');
-    loadTreasuryBalance();
+    openAgentWallet();
   });
 }
 if (closeFundModal) closeFundModal.addEventListener('click', () => fundModal.classList.remove('open'));
@@ -376,7 +420,7 @@ if (closeAccountModal) {
 // Load Accounts List
 async function loadAccountsList() {
   try {
-    const res = await fetch('/api/accounts', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/accounts', { headers: getApiHeaders() });
     const data = await res.json();
     if (data && data.users) {
       accountsListContainer.innerHTML = data.users.map(u => {
@@ -391,7 +435,7 @@ async function loadAccountsList() {
               <span style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:${isActive ? 'var(--success)' : 'var(--text-primary)'};">${escapeHtml(u.accountId)}</span>
             </div>
             <div style="display:flex; align-items:center;">
-              <span style="font-size:12px; color:var(--text-muted); font-weight:500;">${Number(u.balanceNear).toFixed(2)} NEAR</span>
+              <span style="font-size:12px; color:var(--text-muted); font-weight:500;">${isActive && agentSnapshot ? Number(agentSnapshot.balanceNear).toFixed(4) + ' NEAR' : 'Linked profile'}</span>
               ${deleteBtn}
             </div>
           </div>
@@ -411,7 +455,7 @@ window.deleteAccount = async function(e, accId) {
   }
   if (!confirm('Remove account ' + accId + '?')) return;
   try {
-    await fetch('/api/accounts', {
+    await mandateWallet.fetch('/api/accounts', {
       method: 'DELETE',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId: accId })
@@ -433,6 +477,7 @@ window.switchAccount = function(newAccId) {
   localStorage.setItem('mandate_current_account', currentAccount);
   localStorage.setItem('mandate_connected_wallet', currentAccount);
   updateAccountBadgeUI();
+  updateWalletUI();
   accountModal.classList.remove('open');
   showToast('Switched account to ' + currentAccount);
   resetChatToNew();
@@ -452,7 +497,7 @@ createAccountBtn.addEventListener('click', async () => {
   try {
     createAccountBtn.disabled = true;
     createAccountBtn.textContent = 'Creating...';
-    const res = await fetch('/api/accounts', {
+    const res = await mandateWallet.fetch('/api/accounts', {
       method: 'POST',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId: formattedId, initialBalance: 15.00 })
@@ -481,7 +526,7 @@ generateRandomAccountBtn.addEventListener('click', () => {
 async function loadAllowlist() {
   allowlistItemsContainer.innerHTML = '<div class="loading-spinner">Loading approved accounts...</div>';
   try {
-    const res = await fetch('/api/allowlist', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/allowlist', { headers: getApiHeaders() });
     const list = await res.json();
     if (allowlistBadge) allowlistBadge.textContent = list.length;
     if (list.length === 0) {
@@ -510,7 +555,7 @@ addAccountBtn.addEventListener('click', async () => {
   addAccountBtn.disabled = true;
   addAccountBtn.textContent = 'Adding...';
   try {
-    const res = await fetch('/api/allowlist', {
+    const res = await mandateWallet.fetch('/api/allowlist', {
       method: 'POST',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId: acc, label })
@@ -533,7 +578,7 @@ addAccountBtn.addEventListener('click', async () => {
 window.removeAllowlist = async function(accountId) {
   if (!confirm('Remove ' + accountId + ' from approved allowlist?')) return;
   try {
-    await fetch('/api/allowlist', {
+    await mandateWallet.fetch('/api/allowlist', {
       method: 'DELETE',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId })
@@ -549,7 +594,7 @@ window.removeAllowlist = async function(accountId) {
 async function loadLedger() {
   ledgerTableBody.innerHTML = '<tr><td colspan="7" class="loading-td">Querying settlement records...</td></tr>';
   try {
-    const res = await fetch('/api/ledger', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/ledger', { headers: getApiHeaders() });
     const records = await res.json();
     if (!records || records.length === 0) {
       ledgerTableBody.innerHTML = `
@@ -569,7 +614,7 @@ async function loadLedger() {
       const statusBadge = isConfirmed
         ? '<span class="pill pill-success">CONFIRMED</span>'
         : '<span class="pill pill-danger">DENIED</span>';
-      
+
       const explorerLink = r.txHash
         ? `<a href="https://testnet.nearblocks.io/txns/${r.txHash}" target="_blank" rel="noopener noreferrer" class="link-mono">${r.txHash.slice(0, 10)}...</a>`
         : '<span style="color:var(--text-muted);">-</span>';
@@ -601,7 +646,7 @@ async function loadLedger() {
 async function loadConversationsList() {
   if (!conversationsListContainer) return;
   try {
-    const res = await fetch('/api/conversations', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/conversations', { headers: getApiHeaders() });
     const convos = await res.json();
     if (!convos || convos.length === 0) {
       conversationsListContainer.innerHTML = '<div class="conversations-empty"><span>A fresh start.</span>Your conversations will live here.</div>';
@@ -631,7 +676,7 @@ async function persistCurrentConversation() {
   const firstUserMsg = conversationMessages.find(m => m.role === 'user');
   const title = firstUserMsg ? firstUserMsg.text.slice(0, 36) + (firstUserMsg.text.length > 36 ? '...' : '') : 'Mandate Session';
   try {
-    await fetch('/api/conversations', {
+    await mandateWallet.fetch('/api/conversations', {
       method: 'POST',
       headers: getApiHeaders(),
       body: JSON.stringify({
@@ -649,7 +694,7 @@ async function persistCurrentConversation() {
 
 window.switchConversation = async function(convId) {
   try {
-    const res = await fetch('/api/conversations', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/conversations', { headers: getApiHeaders() });
     const convos = await res.json();
     const target = convos.find(c => c.id === convId);
     if (!target) return;
@@ -665,7 +710,7 @@ window.switchConversation = async function(convId) {
 window.deleteConversation = async function(e, convId) {
   e.stopPropagation();
   try {
-    await fetch('/api/conversations', {
+    await mandateWallet.fetch('/api/conversations', {
       method: 'DELETE',
       headers: getApiHeaders(),
       body: JSON.stringify({ id: convId })
@@ -759,13 +804,20 @@ async function handleSubmit() {
   chatContainer.scrollTop = chatContainer.scrollHeight;
 
   try {
-    const res = await fetch('/api/chat', {
+    const res = await mandateWallet.fetch('/api/chat', {
       method: 'POST',
       headers: getApiHeaders(),
       body: JSON.stringify({ message: text })
     });
     const data = await res.json();
     renderAssistantResponse(placeholderId, data, true);
+    if (data.type === 'wallet_deposit' && data.deposit) {
+      const button = document.createElement('button');
+      button.className = 'btn-primary';
+      button.textContent = 'Sign deposit in wallet ↗';
+      button.addEventListener('click', async () => { try { await mandateWallet.signDeposit(data.deposit); await loadTreasuryBalance(); } catch (err) { showToast(err.message); } });
+      document.getElementById(placeholderId)?.querySelector('.message-content')?.appendChild(button);
+    }
     if (data && data.balanceNear !== undefined) {
       const sidebarNear = document.getElementById('sidebarNearBalance');
       if (sidebarNear) sidebarNear.textContent = Number(data.balanceNear).toFixed(2);
@@ -930,12 +982,12 @@ function renderAssistantResponse(id, data, record = true) {
   }
 
   // 4. Greeting or Standard Text
-  if (data.type === 'greeting' || data.type === 'text' || data.type === 'allowlist_warning' || data.type === 'security_notice' || data.type === 'payment_failed') {
+  if (data.type === 'greeting' || data.type === 'text' || data.type === 'wallet_deposit' || data.type === 'allowlist_warning' || data.type === 'security_notice' || data.type === 'payment_failed' || data.error) {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     el.innerHTML = `
       ${mandateAvatar}
       <div class="message-content">
-        <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(data.message)}</div>
+        <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(data.message || data.error)}</div>
       </div>
     `;
     return;
@@ -946,12 +998,12 @@ function renderAssistantResponse(id, data, record = true) {
     if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     const res = data.mandateResult;
     const txLink = res.payout && res.payout.txHash
-      ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
+      ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-text); text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
       : null;
 
     const delegationRows = res.delegation.map(d => `
       <div style="display:flex; align-items:flex-start; gap:8px;">
-        <span style="color:var(--accent); font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
+        <span style="color:var(--accent-text); font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
         <span style="color:var(--text-secondary); flex:1;">${escapeHtml(d.description)}</span>
         <code style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
       </div>
@@ -1003,7 +1055,7 @@ function renderAssistantResponse(id, data, record = true) {
             <div>Mandate Budget: <strong style="color:var(--text-primary);">${res.budgetState.totalBudget}</strong></div>
             <div>Per-Agent Cap: <strong style="color:var(--text-primary);">${res.mandate.perAgentCap}</strong></div>
             <div>Disbursed: <strong style="color:var(--success);">${res.budgetState.spent}</strong></div>
-            <div>Remaining: <strong style="color:var(--accent);">${res.budgetState.remaining}</strong></div>
+            <div>Remaining: <strong style="color:var(--accent-text);">${res.budgetState.remaining}</strong></div>
           </div>
           <div style="font-size:12px; padding:6px 10px; background:var(--danger-soft); border:1px solid var(--danger-border); border-radius:6px; color:var(--danger);">
             🛑 <strong>Active Restriction:</strong> ${escapeHtml(res.mandate.restrictions ? res.mandate.restrictions[0] : 'Purchases prohibited without explicit user authorization.')}
@@ -1021,7 +1073,7 @@ function renderAssistantResponse(id, data, record = true) {
         <!-- 3. Executive Verified Deliverable -->
         <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-subtle); padding-bottom:8px;">
-            <div style="font-size:13px; font-weight:600; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px;">Verified Executive Deliverable</div>
+            <div style="font-size:13px; font-weight:600; color:var(--accent-text); text-transform:uppercase; letter-spacing:0.5px;">Verified Executive Deliverable</div>
             <span style="font-size:11.5px; background:var(--success-soft); color:var(--success); padding:3px 8px; border-radius:12px; font-weight:600;">✓ AUDIT PASSED</span>
           </div>
           <div class="deliverable-body" style="font-size:13.5px; line-height:1.65; color:var(--text-secondary);">
@@ -1033,7 +1085,7 @@ function renderAssistantResponse(id, data, record = true) {
         <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:12px;">
           <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">On-Chain Testnet Settlement</div>
           <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
-            • <strong>Disbursement:</strong> Paid ${res.payout.amount} to <code style="color:var(--accent);">${res.payout.recipient}</code> for verified research services.<br>
+            • <strong>Disbursement:</strong> Paid ${res.payout.amount} to <code style="color:var(--accent-text);">${res.payout.recipient}</code> for verified research services.<br>
             • <strong>Testnet Transaction:</strong> ${txLink ? txLink + ' (Live on NearBlocks)' : '<em>Pending block inclusion</em>'}<br>
             • <strong>Policy Audit:</strong> Validated allowlist, verified rubric, under ${res.mandate.perAgentCap} cap.
           </div>
@@ -1097,7 +1149,7 @@ function renderMarkdownRich(md) {
     if (trimmed.startsWith('# ')) {
       html += '<h2 style="font-size:16px; font-weight:700; color:var(--text-primary); margin:14px 0 8px 0;">' + formatMarkdown(trimmed.slice(2)) + '</h2>';
     } else if (trimmed.startsWith('## ')) {
-      html += '<h3 style="font-size:14px; font-weight:600; color:var(--accent); margin:12px 0 6px 0;">' + formatMarkdown(trimmed.slice(3)) + '</h3>';
+      html += '<h3 style="font-size:14px; font-weight:600; color:var(--accent-text); margin:12px 0 6px 0;">' + formatMarkdown(trimmed.slice(3)) + '</h3>';
     } else if (trimmed.startsWith('### ')) {
       html += '<h4 style="font-size:13px; font-weight:600; color:var(--text-primary); margin:10px 0 4px 0;">' + formatMarkdown(trimmed.slice(4)) + '</h4>';
     } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
@@ -1148,7 +1200,7 @@ function openSwapModal() {
   if (swapModal) {
     swapModal.classList.add('open');
     if (swapDestinationWallet && !swapDestinationWallet.value) {
-      swapDestinationWallet.value = connectedWallet || currentAccount;
+      swapDestinationWallet.value = agentSnapshot?.accountId || '';
     }
     updateSwapQuote();
     loadSwapHistory();
@@ -1166,10 +1218,10 @@ if (closeSwapModal) closeSwapModal.addEventListener('click', () => swapModal.cla
 if (useConnectedWalletBtn) {
   useConnectedWalletBtn.addEventListener('click', () => {
     if (connectedWallet && swapDestinationWallet) {
-      swapDestinationWallet.value = connectedWallet;
+      swapDestinationWallet.value = agentSnapshot?.accountId || '';
     } else {
       showToast('No wallet connected. Using account: ' + currentAccount);
-      if (swapDestinationWallet) swapDestinationWallet.value = currentAccount;
+      if (swapDestinationWallet) swapDestinationWallet.value = agentSnapshot?.accountId || '';
     }
   });
 }
@@ -1201,7 +1253,7 @@ async function updateSwapQuote() {
   }
   try {
     const dest = swapDestinationWallet ? encodeURIComponent(swapDestinationWallet.value.trim()) : '';
-    const res = await fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
+    const res = await mandateWallet.fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
     const data = await res.json();
     if (data && !data.error) {
       if (swapOutputUsdt) swapOutputUsdt.value = Number(data.outputUsdt).toFixed(2);
@@ -1214,7 +1266,7 @@ async function updateSwapQuote() {
 async function loadSwapHistory() {
   if (!swapHistoryTableBody) return;
   try {
-    const res = await fetch('/api/swap/history', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/swap/history', { headers: getApiHeaders() });
     const data = await res.json();
     if (data && Array.isArray(data.swaps) && data.swaps.length > 0) {
       swapHistoryTableBody.innerHTML = data.swaps.map(s => {
@@ -1303,10 +1355,11 @@ if (btnExecuteSwap) {
       setStepState(swapStep3, 'active');
 
       // Step 3: Executing on NEAR Testnet
-      const res = await fetch('/api/swap/execute', {
+      const res = await mandateWallet.fetch('/api/swap/execute', {
         method: 'POST',
         headers: getApiHeaders(),
         body: JSON.stringify({
+          id: crypto.randomUUID(),
           inputNear: amt,
           minOutputUsdt: minOut,
           destinationWallet: dest,
@@ -1326,10 +1379,10 @@ if (btnExecuteSwap) {
         swapResultBox.style.color = 'var(--text-primary)';
         swapResultBox.innerHTML =
           '<strong>✅ Swap & Payout Confirmed!</strong><br>' +
-          'Transferred <strong>' + data.outputUsdt + ' Test USDT</strong> to <code>' + escapeHtml(data.destinationWallet) + '</code>.<br>' +
+          'Swapped funds are now available in your agent wallet.<br>' +
           '<a href="' + data.explorerUrl + '" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline; font-family:var(--font-mono); font-size:11.5px; margin-top:4px; display:inline-block;">View Transaction on NearBlocks ↗</a>';
 
-        showToast('Swap Confirmed! ' + data.outputUsdt + ' Test USDT sent.');
+        showToast('Swap confirmed in your agent wallet');
         loadTreasuryBalance();
         loadSwapHistory();
       } else {
@@ -1338,7 +1391,7 @@ if (btnExecuteSwap) {
         swapResultBox.style.background = 'var(--danger-soft)';
         swapResultBox.style.border = '1px solid var(--danger-border)';
         swapResultBox.style.color = 'var(--danger)';
-        swapResultBox.innerHTML = '<strong>❌ Swap Failed:</strong> ' + escapeHtml(data.error || 'Transaction rejected.');
+        swapResultBox.innerHTML = '<strong>❌ Swap Failed:</strong> ' + escapeHtml(data.error || data.operation?.error || 'Transaction needs review.');
       }
     } catch (err) {
       swapResultBox.style.display = 'block';
@@ -1382,7 +1435,8 @@ document.querySelectorAll('.modal-backdrop').forEach(modal => {
   if (sidebarDisconnectBtn) {
     sidebarDisconnectBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      connectedWallet = null;
+      mandateWallet.disconnect(connectedWallet);
+    connectedWallet = null;
       currentAccount = null;
       localStorage.removeItem('mandate_connected_wallet');
       localStorage.removeItem('mandate_current_account');
@@ -1390,4 +1444,5 @@ document.querySelectorAll('.modal-backdrop').forEach(modal => {
       showToast('Wallet disconnected');
     });
   }
-  
+
+setInterval(() => { if (connectedWallet && !document.hidden) loadTreasuryBalance(); }, 30000);

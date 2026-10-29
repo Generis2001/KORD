@@ -17,6 +17,7 @@ export interface MandateRunOptions {
   totalBudgetCents?: bigint;
   perAgentCapCents?: bigint;
   executorMode?: "escrow" | "near" | "mock";
+  executor?: PaymentExecutor;
   rubric?: Partial<Rubric>;
   deliverableText?: string;
   simulateAttack?: boolean;
@@ -101,12 +102,12 @@ export function detectDomain(goal: string): MandateDomain {
 
 export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promise<MandateRunResult> {
   const mode = opts.executorMode ?? (process.env.DEMO_EXECUTOR ?? "near");
-  const executor: PaymentExecutor =
+  const executor: PaymentExecutor = opts.executor ?? (
     mode === "escrow"
       ? new EscrowExecutor(loadEscrowConfig())
       : mode === "near"
       ? new NearExecutor(loadNearConfig())
-      : new MockExecutor();
+      : new MockExecutor());
 
   const agents = {
     researcher: process.env.AGENT_RESEARCHER ?? "mandate-generis-researcher.testnet",
