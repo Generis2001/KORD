@@ -217,55 +217,37 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     }
   }
 
-  // 5. /api/conversations (GET list, POST save, DELETE remove)
+  // Conversation writes finish in durable storage before the client receives success.
   if (url.pathname === '/api/conversations') {
     if (req.method === 'GET') {
-      const convos = await store.getConversationsAsync(userAccount);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify(convos));
-    }
-
-    if (req.method === 'POST') {
-      let body = '';
-      req.on('data', c => { body += c; });
-      req.on('end', () => {
-        try {
-          const { id, title, domain, messages } = JSON.parse(body || '{}');
-          if (!id) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'id is required' }));
-          }
-          store.saveConversation(id, userAccount, title || 'Mandate Session', messages || []);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
-        } catch (e: any) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
+      try {
+        const id = url.searchParams.get('id');
+        if (id) {
+          const conversation = await store.getConversationAsync(id, userAccount);
+          return json(conversation ? 200 : 404, conversation || { error: 'Conversation not found.' });
         }
+        return json(200, await store.getConversationsAsync(userAccount));
+      } catch { return json(503, { error: 'Conversation history is temporarily unavailable. Try again shortly.' }); }
+    }
+    if (req.method === 'POST' || req.method === 'DELETE') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          if (typeof payload.id !== 'string' || !/^[a-zA-Z0-9_-]{1,120}$/.test(payload.id)) return json(400, { error: 'A valid conversation ID is required.' });
+          if (req.method === 'DELETE') {
+            const deleted = await store.deleteConversation(payload.id, userAccount);
+            return json(deleted ? 200 : 404, deleted ? { success: true } : { error: 'Conversation not found.' });
+          }
+          if (!Array.isArray(payload.messages) || payload.messages.some((message: any) => !message || !['user','assistant'].includes(message.role))) return json(400, { error: 'A valid message array is required.' });
+          await store.saveConversation(payload.id, userAccount, String(payload.title || 'Mandate Session').slice(0,120), payload.messages);
+          return json(200, { success: true });
+        } catch { return json(503, { error: 'Conversation could not be saved. Your local backup will retry syncing.' }); }
       });
       return;
     }
-
-    if (req.method === 'DELETE') {
-      let body = '';
-      req.on('data', c => { body += c; });
-      req.on('end', () => {
-        try {
-          const { id } = JSON.parse(body || '{}');
-          if (!id) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'id is required' }));
-          }
-          store.deleteConversation(id);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
-        } catch (e: any) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
-    }
+    return json(405, { error: 'Method not allowed.' });
   }
 
   // 5.5 /api/swap (quote, history, execute)

@@ -1,7 +1,10 @@
 // --- Multi-User & Wallet State ---
 let connectedWallet = localStorage.getItem('mandate_connected_wallet') || null;
 let currentAccount = connectedWallet;
-let activeConversationId = 'conv_' + Date.now();
+let activeConversationId = null;
+const conversationHistories = new Map();
+let conversationAccount;
+let conversationNavigation = 0;
 let conversationMessages = [];
 
 // DOM Elements
@@ -159,6 +162,7 @@ function updateWalletUI() {
     if (sidebarDisconnectedCard) sidebarDisconnectedCard.style.display = 'flex';
     if (sidebarConnectedCard) sidebarConnectedCard.style.display = 'none';
   }
+  activateConversationAccount(currentAccount);
 }
 
 let agentSnapshot = null;
@@ -377,7 +381,6 @@ if (confirmManualWalletBtn) {
     walletModal.classList.remove('open');
     showToast('Linked wallet: ' + connectedWallet);
     loadTreasuryBalance();
-    loadConversationsList();
   });
 }
 
@@ -480,11 +483,9 @@ window.switchAccount = function(newAccId) {
   updateWalletUI();
   accountModal.classList.remove('open');
   showToast('Switched account to ' + currentAccount);
-  resetChatToNew();
   loadTreasuryBalance();
   loadAllowlist();
   loadLedger();
-  loadConversationsList();
 };
 
 createAccountBtn.addEventListener('click', async () => {
@@ -642,117 +643,139 @@ async function loadLedger() {
   }
 }
 
-// --- Chat History & Conversations ---
-async function loadConversationsList() {
+// --- Durable Chat History & Conversations ---
+function historyFor(account) {
+  if (!account) return null;
+  if (!conversationHistories.has(account)) {
+    conversationHistories.set(account, new ConversationHistory(account, {
+      request: (url, options) => mandateWallet.fetch(url, options),
+      onChange: () => { if (currentAccount === account) renderConversationsList(); },
+      onError: message => { if (currentAccount === account) document.getElementById('conversationSyncStatus').textContent = message; }
+    }));
+  }
+  return conversationHistories.get(account);
+}
+
+function activateConversationAccount(account) {
+  if (conversationAccount === account) return;
+  conversationAccount = account;
+  conversationNavigation++;
+  const history = historyFor(account);
+  const record = history && (history.get(history.activeId) || history.create());
+  activeConversationId = record?.id || null;
+  conversationMessages = record?.messages || [];
+  renderConversationMessages();
+  renderConversationsList();
+  if (history) void loadConversationsList(true);
+}
+
+function renderConversationsList() {
   if (!conversationsListContainer) return;
+  const history = historyFor(currentAccount);
+  const records = history?.list() || [];
+  const status = document.getElementById('conversationSyncStatus');
+  status.textContent = records.some(record => record.pending) ? 'Saved in this browser · sync pending' : '';
+  conversationsListContainer.replaceChildren();
+  if (!records.length) {
+    conversationsListContainer.innerHTML = '<div class="conversations-empty"><span>A fresh start.</span>Your conversations will live here.</div>';
+    return;
+  }
+  for (const record of records) {
+    const row = document.createElement('div');
+    row.className = 'history-item' + (record.id === activeConversationId ? ' active' : '');
+    const open = document.createElement('button');
+    open.className = 'history-open-btn';
+    open.textContent = record.title || 'Mandate Session';
+    open.title = record.title || 'Mandate Session';
+    open.style.overflow = 'hidden'; open.style.textOverflow = 'ellipsis'; open.style.whiteSpace = 'nowrap';
+    if (record.id === activeConversationId) open.setAttribute('aria-current', 'true');
+    open.addEventListener('click', () => switchConversation(record.id));
+    const remove = document.createElement('button');
+    remove.className = 'history-delete-btn';
+    remove.setAttribute('aria-label', 'Delete conversation: ' + record.title);
+    remove.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6m4-6v6"/></svg>';
+    remove.addEventListener('click', event => deleteConversation(event, record.id));
+    row.append(open, remove); conversationsListContainer.append(row);
+  }
+}
+
+async function loadConversationsList(restore = false) {
+  const owner = currentAccount;
+  const history = historyFor(owner);
+  if (!history) { renderConversationsList(); return; }
+  const navigation = conversationNavigation;
   try {
-    const res = await mandateWallet.fetch('/api/conversations', { headers: getApiHeaders() });
-    const convos = await res.json();
-    if (!convos || convos.length === 0) {
-      conversationsListContainer.innerHTML = '<div class="conversations-empty"><span>A fresh start.</span>Your conversations will live here.</div>';
-      return;
+    await history.refresh();
+    if (owner !== currentAccount) return;
+    if (!history.get(activeConversationId)) { resetChatToNew(); return; }
+    if (restore && navigation === conversationNavigation) {
+      const record = history.get(activeConversationId);
+      if (record?.messages.length || record?.loaded === false) {
+        const loaded = await history.load(record.id);
+        if (owner === currentAccount && navigation === conversationNavigation) {
+          conversationMessages = loaded.messages;
+          renderConversationMessages();
+        }
+      }
     }
-    conversationsListContainer.innerHTML = convos.map(c => {
-      const isActive = c.id === activeConversationId;
-      return `
-        <div class="history-item ${isActive ? 'active' : ''}" onclick="switchConversation('${escapeHtml(c.id)}')">
-          <div class="history-title-wrap">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px;">${escapeHtml(c.title || 'Mandate Session')}</span>
-          </div>
-          <button class="history-delete-btn" onclick="deleteConversation(event, '${escapeHtml(c.id)}')">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-          </button>
-        </div>
-      `;
-    }).join('');
-  } catch (err) {
-    console.error('Failed to load conversations', err);
+    renderConversationsList();
+  } catch (error) {
+    if (owner === currentAccount) { renderConversationsList(); document.getElementById('conversationSyncStatus').textContent = error.message; }
   }
 }
 
-async function persistCurrentConversation() {
-  if (conversationMessages.length === 0) return;
-  const firstUserMsg = conversationMessages.find(m => m.role === 'user');
-  const title = firstUserMsg ? firstUserMsg.text.slice(0, 36) + (firstUserMsg.text.length > 36 ? '...' : '') : 'Mandate Session';
+window.switchConversation = async function(id) {
+  const owner = currentAccount;
+  const history = historyFor(owner);
+  const navigation = ++conversationNavigation;
   try {
-    await mandateWallet.fetch('/api/conversations', {
-      method: 'POST',
-      headers: getApiHeaders(),
-      body: JSON.stringify({
-        id: activeConversationId,
-        title,
-        domain: 'mandate',
-        messages: conversationMessages
-      })
-    });
-    loadConversationsList();
-  } catch (err) {
-    console.error('Failed to save conversation', err);
-  }
-}
-
-window.switchConversation = async function(convId) {
-  try {
-    const res = await mandateWallet.fetch('/api/conversations', { headers: getApiHeaders() });
-    const convos = await res.json();
-    const target = convos.find(c => c.id === convId);
-    if (!target) return;
-    activeConversationId = target.id;
-    conversationMessages = JSON.parse(target.messagesJson || '[]');
+    const record = await history.load(id);
+    if (owner !== currentAccount || navigation !== conversationNavigation) return;
+    activeConversationId = record.id;
+    conversationMessages = record.messages;
+    history.setActive(record.id);
     renderConversationMessages();
-    loadConversationsList();
-  } catch (err) {
-    console.error('Error switching conversation', err);
-  }
+  } catch (error) { if (owner === currentAccount) showToast(error.message); }
 };
 
-window.deleteConversation = async function(e, convId) {
-  e.stopPropagation();
+window.deleteConversation = async function(event, id) {
+  event.stopPropagation();
+  const owner = currentAccount;
   try {
-    await mandateWallet.fetch('/api/conversations', {
-      method: 'DELETE',
-      headers: getApiHeaders(),
-      body: JSON.stringify({ id: convId })
-    });
-    if (activeConversationId === convId) {
-      resetChatToNew();
-    }
-    loadConversationsList();
-  } catch (err) {
-    console.error('Error deleting conversation', err);
-  }
+    await historyFor(owner).remove(id);
+    if (owner !== currentAccount) return;
+    if (activeConversationId === id) resetChatToNew();
+    renderConversationsList();
+  } catch (error) { if (owner === currentAccount) showToast(error.message); }
 };
 
 function resetChatToNew() {
-  activeConversationId = 'conv_' + Date.now();
-  conversationMessages = [];
-  messagesStream.innerHTML = '';
-  heroScreen.style.display = 'flex';
+  conversationNavigation++;
+  const record = historyFor(currentAccount)?.create();
+  activeConversationId = record?.id || null;
+  conversationMessages = record?.messages || [];
   promptInput.value = '';
-  loadConversationsList();
+  renderConversationMessages();
 }
 
 function renderConversationMessages() {
-  messagesStream.innerHTML = '';
-  if (conversationMessages.length === 0) {
-    heroScreen.style.display = 'flex';
-    return;
-  }
-  heroScreen.style.display = 'none';
-  conversationMessages.forEach(msg => {
-    if (msg.role === 'user') {
-      appendUserMessage(msg.text, false);
-    } else if (msg.data) {
-      const rowId = 'msg-' + Math.random().toString(36).substring(2, 9);
-      appendAssistantLoading(rowId);
-      renderAssistantResponse(rowId, msg.data, false);
+  messagesStream.replaceChildren();
+  heroScreen.style.display = conversationMessages.length ? 'none' : 'flex';
+  for (const message of conversationMessages) {
+    if (message.role === 'user') appendUserMessage(message.text, false);
+    else if (message.data) {
+      const id = 'msg-' + crypto.randomUUID();
+      appendAssistantLoading(id);
+      renderAssistantResponse(id, message.data, false);
     }
-  });
+  }
   chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
 newChatBtn.addEventListener('click', resetChatToNew);
+window.addEventListener('online', () => { if (currentAccount) void loadConversationsList(); });
+window.addEventListener('pagehide', () => { for (const history of conversationHistories.values()) { history.cache(); void history.flush(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && currentAccount) void loadConversationsList(); });
 
 // --- Chat Messaging & Interactions ---
 promptInput.addEventListener('keydown', (e) => {
@@ -794,23 +817,25 @@ async function handleSubmit() {
     return;
   }
 
+  const conversation = { account: currentAccount, id: activeConversationId };
   heroScreen.style.display = 'none';
   appendUserMessage(text, true);
   promptInput.value = '';
   promptInput.style.height = 'auto';
 
-  const placeholderId = 'loading-' + Date.now();
+  const placeholderId = 'loading-' + crypto.randomUUID();
   appendAssistantLoading(placeholderId);
   chatContainer.scrollTop = chatContainer.scrollHeight;
 
   try {
     const res = await mandateWallet.fetch('/api/chat', {
       method: 'POST',
-      headers: getApiHeaders(),
+      headers: { 'Content-Type': 'application/json', 'x-mandate-account': conversation.account },
       body: JSON.stringify({ message: text })
     });
     const data = await res.json();
-    renderAssistantResponse(placeholderId, data, true);
+    renderAssistantResponse(placeholderId, data, true, conversation);
+    if (conversation.account !== currentAccount || conversation.id !== activeConversationId) return;
     if (data.type === 'wallet_deposit' && data.deposit) {
       const button = document.createElement('button');
       button.className = 'btn-primary';
@@ -834,13 +859,13 @@ async function handleSubmit() {
     renderAssistantResponse(placeholderId, {
       type: 'text',
       message: '❌ Error communicating with Mandate: ' + err.message
-    }, true);
+    }, true, conversation);
   }
 }
 
 function appendUserMessage(text, record = true) {
   if (record) {
-    conversationMessages.push({ role: 'user', text });
+    historyFor(currentAccount).append(activeConversationId, { role: 'user', text });
   }
   const row = document.createElement('div');
   row.className = 'message-row user';
@@ -867,14 +892,15 @@ function appendAssistantLoading(id) {
   messagesStream.appendChild(row);
 }
 
-function renderAssistantResponse(id, data, record = true) {
+function renderAssistantResponse(id, data, record = true, conversation = null) {
   if (record) {
-    conversationMessages.push({ role: 'assistant', data });
-    persistCurrentConversation();
+    const owner = conversation?.account || currentAccount;
+    const thread = conversation?.id || activeConversationId;
+    historyFor(owner)?.append(thread, { role: 'assistant', data });
+    if (owner !== currentAccount || thread !== activeConversationId) return;
   }
-
   const el = document.getElementById(id);
-  if (!el) return;
+  if (!el) { if (record) renderConversationMessages(); return; }
 
   const mandateAvatar = `
     <div class="assistant-avatar">
@@ -918,7 +944,7 @@ function renderAssistantResponse(id, data, record = true) {
         </div>
       </div>
     `;
-    if (data.remainingBalance) updateTreasuryUI(data.remainingBalance);
+    if (record && data.remainingBalance) updateTreasuryUI(data.remainingBalance);
     return;
   }
 
@@ -948,7 +974,7 @@ function renderAssistantResponse(id, data, record = true) {
         </div>
       </div>
     `;
-    updateTreasuryUI(data.newBalance);
+    if (record) updateTreasuryUI(data.newBalance);
     return;
   }
 
@@ -983,7 +1009,7 @@ function renderAssistantResponse(id, data, record = true) {
 
   // 4. Greeting or Standard Text
   if (data.type === 'greeting' || data.type === 'text' || data.type === 'wallet_deposit' || data.type === 'allowlist_warning' || data.type === 'security_notice' || data.type === 'payment_failed' || data.error) {
-    if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
+    if (record && data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     el.innerHTML = `
       ${mandateAvatar}
       <div class="message-content">
@@ -995,7 +1021,7 @@ function renderAssistantResponse(id, data, record = true) {
 
   // 5. Mandate Execution Result (Strictly Aligned Executive Experience with 4 Specialized Roles)
   if (data.mandateResult) {
-    if (data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
+    if (record && data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
     const res = data.mandateResult;
     const txLink = res.payout && res.payout.txHash
       ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-text); text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
@@ -1411,7 +1437,6 @@ updateAccountBadgeUI();
 updateWalletUI();
 checkWalletCallback();
 loadTreasuryBalance();
-loadConversationsList();
 
 
 // Universal modal backdrop click to close

@@ -8,6 +8,12 @@ Live Production URL: **[https://mandateme.vercel.app](https://mandateme.vercel.a
 
 ---
 
+## Conversation history
+
+Every sent message and Mandate response is saved, including transaction receipts and completed mandate results. Past chats appear under **Conversations** in the sidebar. Select any chat to revisit it; refreshing or returning to the workspace restores the last conversation opened for that wallet. **New conversation** starts a separate thread while keeping earlier chats available.
+
+Chats are backed up in the browser before syncing, and interrupted saves retry when you return or reconnect. Each linked wallet maintains its own history. PostgreSQL writes finish before a save is acknowledged on serverless deployments; configure `DATABASE_URL` or `POSTGRES_URL` for cloud history across devices. Local development saves to the persistent SQLite database. Conversation titles are listed separately from full messages so older chats remain accessible without loading every transcript at startup.
+
 ## Agent wallet and single-command mandates
 
 Each linked NEAR account has its own Mandate-controlled **implicit NEAR account**. Its address is a stable 64-character public key hash. The backend derives and signs with this wallet; the linked wallet signs deposits. Linked balances and agent balances are displayed separately. New profiles receive no synthetic NEAR or USDT credit. Available funds, stake balances, and cooldowns come from final on-chain views.

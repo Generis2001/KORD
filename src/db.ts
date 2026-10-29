@@ -44,12 +44,21 @@ export interface AllowlistEntry {
   addedAt: string;
 }
 
+export interface Conversation {
+  id: string;
+  userAccount: string;
+  title: string;
+  messages: any[];
+  updatedAt: string;
+}
+
 
 export const NEON_POSTGRES_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
 export class Store {
   readonly pgPool: pg.Pool | null = null;
   readonly db: Database.Database;
+  private conversationsReady?: Promise<unknown>;
 
   constructor(path = ":memory:") {
     const isVercel = Boolean(process.env.VERCEL);
@@ -445,36 +454,47 @@ export class Store {
       for (const row of uRes.rows) {
         this.db.prepare("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES (?, ?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET balance_near=excluded.balance_near, balance_usdt=excluded.balance_usdt").run(row.account_id, row.label, Number(row.balance_near), Number(row.balance_usdt));
       }
-      const cRes = await this.pgPool.query("SELECT id, user_account, title, messages_json, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 50");
-      for (const row of cRes.rows) {
-        const msgStr = typeof row.messages_json === 'string' ? row.messages_json : JSON.stringify(row.messages_json || []);
-        this.db.prepare("INSERT INTO conversations (id, user_account, title, messages_json, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, updated_at=excluded.updated_at").run(row.id, row.user_account, row.title, msgStr, new Date(row.updated_at).toISOString());
-      }
     } catch (e) {
       // Offline or network error; local SQLite remains active
     }
   }
 
-  async getConversationsAsync(userAccount: string): Promise<any[]> {
-    if (this.pgPool) {
-      try {
-        const res = await this.pgPool.query(
-          "SELECT id, title, messages_json, updated_at FROM conversations WHERE LOWER(user_account) = LOWER($1) ORDER BY updated_at DESC LIMIT 30",
-          [userAccount.trim().toLowerCase()]
-        );
-        if (res.rows.length > 0) {
-          return res.rows.map(r => ({
-            id: r.id,
-            title: r.title,
-            updatedAt: r.updated_at,
-            messages: typeof r.messages_json === 'string' ? JSON.parse(r.messages_json) : (r.messages_json || [])
-          }));
-        }
-      } catch (err) {
-        console.error("PG getConversations error:", err);
-      }
+  private async ensureConversations() {
+    if (!this.pgPool) {
+      if (process.env.VERCEL) throw new Error('Configure DATABASE_URL for durable conversation storage.');
+      return;
     }
-    return this.getConversations(userAccount);
+    await (this.conversationsReady ??= this.pgPool.query(`CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY, user_account TEXT NOT NULL, title TEXT NOT NULL,
+      messages_json TEXT NOT NULL DEFAULT '[]', updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+      .catch(error => { this.conversationsReady = undefined; throw error; }));
+  }
+
+  private conversation(row: any): Conversation {
+    const messages = typeof row.messages_json === 'string' ? JSON.parse(row.messages_json) : row.messages_json;
+    return { id: row.id, userAccount: row.user_account, title: row.title,
+      messages: Array.isArray(messages) ? messages : [], updatedAt: new Date(row.updated_at).toISOString() };
+  }
+
+  async getConversationsAsync(userAccount: string): Promise<Omit<Conversation, 'messages'>[]> {
+    const account = userAccount.trim().toLowerCase();
+    await this.ensureConversations();
+    if (this.pgPool) {
+      const result = await this.pgPool.query('SELECT id,user_account,title,updated_at FROM conversations WHERE LOWER(user_account)=$1 ORDER BY updated_at DESC,id DESC', [account]);
+      return result.rows.map(row => ({ id: row.id, userAccount: row.user_account, title: row.title, updatedAt: new Date(row.updated_at).toISOString() }));
+    }
+    const rows = this.db.prepare('SELECT id,user_account,title,updated_at FROM conversations WHERE LOWER(user_account)=? ORDER BY julianday(updated_at) DESC,id DESC').all(account) as any[];
+    return rows.map(row => ({ id: row.id, userAccount: row.user_account, title: row.title, updatedAt: new Date(row.updated_at).toISOString() }));
+  }
+
+  async getConversationAsync(id: string, userAccount: string): Promise<Conversation | null> {
+    const account = userAccount.trim().toLowerCase();
+    await this.ensureConversations();
+    if (this.pgPool) {
+      const result = await this.pgPool.query('SELECT * FROM conversations WHERE id=$1 AND LOWER(user_account)=$2', [id, account]);
+      return result.rows[0] ? this.conversation(result.rows[0]) : null;
+    }
+    return this.getConversation(id, account);
   }
 
   async listUsersAsync(): Promise<{ accountId: string; balanceNear: number }[]> {
@@ -492,46 +512,42 @@ export class Store {
   }
 
   // --- Conversations / Chat History ---
-  getConversations(userAccount: string): any[] {
-    try {
-      const rows = this.db.prepare("SELECT id, title, messages_json, updated_at FROM conversations WHERE user_account=? ORDER BY updated_at DESC LIMIT 30").all(userAccount) as any[];
-      return rows.map(r => ({
-        id: r.id,
-        title: r.title,
-        updatedAt: r.updated_at,
-        messages: JSON.parse(r.messages_json || '[]')
-      }));
-    } catch {
-      return [];
-    }
+  getConversations(userAccount: string): Conversation[] {
+    const rows = this.db.prepare('SELECT * FROM conversations WHERE LOWER(user_account)=? ORDER BY julianday(updated_at) DESC,id DESC').all(userAccount.trim().toLowerCase());
+    return rows.map(row => this.conversation(row));
   }
 
-  getConversation(id: string): any {
-    try {
-      const row = this.db.prepare("SELECT * FROM conversations WHERE id=?").get(id) as any;
-      if (!row) return null;
-      return { id: row.id, userAccount: row.user_account, title: row.title, messages: JSON.parse(row.messages_json || '[]'), updatedAt: row.updated_at };
-    } catch {
-      return null;
-    }
+  getConversation(id: string, userAccount: string): Conversation | null {
+    const row = this.db.prepare('SELECT * FROM conversations WHERE id=? AND LOWER(user_account)=?').get(id, userAccount.trim().toLowerCase());
+    return row ? this.conversation(row) : null;
   }
 
-  saveConversation(id: string, userAccount: string, title: string, messages: any[]): void {
-    try {
-      this.db.prepare("INSERT INTO conversations (id, user_account, title, messages_json, updated_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, updated_at=datetime('now')").run(id, userAccount, title, JSON.stringify(messages));
-    } catch {}
-  }
-
-  deleteConversation(id: string): boolean {
-    try {
-      const res = this.db.prepare("DELETE FROM conversations WHERE id=?").run(id);
+  async saveConversation(id: string, userAccount: string, title: string, messages: any[]): Promise<void> {
+    const account = userAccount.trim().toLowerCase();
+    await this.ensureConversations();
+    if (!id || !Array.isArray(messages)) throw new Error('A conversation ID and message array are required.');
+    const data = JSON.stringify(messages);
     if (this.pgPool) {
-      this.pgPool.query("DELETE FROM conversations WHERE id=$1", [id]).catch(() => {});
+      const result = await this.pgPool.query(`INSERT INTO conversations (id,user_account,title,messages_json,updated_at) VALUES ($1,$2,$3,$4,now())
+        ON CONFLICT(id) DO UPDATE SET title=excluded.title,messages_json=excluded.messages_json,updated_at=now()
+        WHERE LOWER(conversations.user_account)=excluded.user_account RETURNING id`, [id, account, title, data]);
+      if (!result.rows.length) throw new Error('Conversation not found for this account.');
+      return;
     }
-      return res.changes > 0;
-    } catch {
-      return false;
+    const result = this.db.prepare(`INSERT INTO conversations (id,user_account,title,messages_json,updated_at) VALUES (?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET title=excluded.title,messages_json=excluded.messages_json,updated_at=excluded.updated_at
+      WHERE LOWER(conversations.user_account)=excluded.user_account RETURNING id`).get(id, account, title, data, new Date().toISOString());
+    if (!result) throw new Error('Conversation not found for this account.');
+  }
+
+  async deleteConversation(id: string, userAccount: string): Promise<boolean> {
+    const account = userAccount.trim().toLowerCase();
+    await this.ensureConversations();
+    if (this.pgPool) {
+      const result = await this.pgPool.query('DELETE FROM conversations WHERE id=$1 AND LOWER(user_account)=$2', [id, account]);
+      return Boolean(result.rowCount);
     }
+    return this.db.prepare('DELETE FROM conversations WHERE id=? AND LOWER(user_account)=?').run(id, account).changes > 0;
   }
 
   // --- Core Mandates, Tasks & Payments ---
