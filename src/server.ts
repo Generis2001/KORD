@@ -1,12 +1,15 @@
+import 'dotenv/config';
 import { AgentSwapService, TEST_USDT_DISCLAIMER } from './swap.js';
-import OpenAI from 'openai';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { Store } from './db.js';
 import { loadNearConfig } from './near.js';
 import { runAutonomousMandate } from './runner.js';
+import { researchPaymentRequest } from './research-payment.js';
 import { AgentWallet, validAccount } from './agent-wallet.js';
+import { auditWalletReceipt } from './receipt-audit.js';
+import { VerifiedEscrow } from './escrow.js';
 import { WalletStore } from './wallet-store.js';
 import { verifyWalletRequest } from './wallet-auth.js';
 import { parseWalletCommand } from './wallet-command.js';
@@ -21,7 +24,7 @@ const store = new Store(dbPath);
 const nearCfg = loadNearConfig();
 const swapService = new AgentSwapService();
 const agentWallet = new AgentWallet(nearCfg, new WalletStore(store));
-const openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const verifiedEscrow = new VerifiedEscrow(agentWallet);
 
 function getMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -299,6 +302,14 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
       
       try {
+        const refund = prompt.trim().match(/^(?:mandate\s+)?refund escrow (m_[a-f0-9]{40})$/i);
+        if (refund) {
+          await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+          const operation = await verifiedEscrow.refund(userAccount, refund[1].toLowerCase());
+          return json(200, { type: 'text', operation, message: operation.status === 'confirmed' && operation.action === 'escrow_refund'
+            ? `Escrow refunded **${operation.amount} testnet NEAR** to your agent wallet. [View receipt](${agentWallet.explorer(operation.txHashes.at(-1)!)})`
+            : `Escrow refund needs review: ${operation.error || operation.status}. Reconcile operation \`${operation.id}\` before retrying.` });
+        }
         const command = parseWalletCommand(prompt);
         if (command) {
           if (command.action === 'deposit') {
@@ -386,49 +397,14 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       const isSmallTalk = /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
 
       if (isGreeting || isHelpOrCapabilities || isSmallTalk) {
-        if (openaiClient) {
-          try {
-            const completion = await openaiClient.chat.completions.create({
-              model: process.env.OPENAI_MODEL || 'gpt-6.1-sol',
-              messages: [
-                {
-                  role: 'system',
-                  content: 'You are Mandate, an autonomous AI blockchain agent on NEAR Protocol. You carry out automated on-chain transactions on NEAR Testnet: native NEAR transfers, NEP-141 token swaps (NEAR ↔ Test USDT), smart contract escrow operations, and treasury balance allocations. You enforce user-defined spending limits and authorized payable allowlists, ensuring every transaction is cryptographically verifiable on NearBlocks explorer. Answer conversationally, concisely, and clearly in markdown.'
-                },
-                {
-                  role: 'user',
-                  content: prompt
-                }
-              ],
-              temperature: 0.7,
-              max_tokens: 350
-            });
-            const text = completion.choices[0]?.message?.content;
-            if (text && text.trim().length > 0) {
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              return res.end(JSON.stringify({
-                type: 'greeting',
-                message: text.trim()
-              }));
-            }
-          } catch (aiErr: any) {
-            console.warn('[Server Chat] OpenAI conversational fallback:', aiErr?.message || aiErr);
-          }
-        }
-
-        const greetingMsg = "Hello! I am **Mandate**, your autonomous business agent orchestrated on **NEAR Protocol**.\n\n" +
-          "I coordinate four specialized autonomous agents to execute complex commercial tasks under strict spending limits:\n" +
-          "- 🧭 **Mandate Orchestrator:** Analyzes directives, sets budgets, and decomposes workflows.\n" +
-          "- 🔍 **Researcher Agent:** Gathers verified vendor quotations, corridor liquidity, and market data.\n" +
-          "- 📊 **Analyst Agent:** Compiles comparative pricing matrices and executive recommendations.\n" +
-          "- 🛡️ **Verifier Agent:** Audits evidence, validates acceptance criteria, and releases escrow.\n\n" +
-          "---\n\n" +
-          "### What would you like to run?\n" +
-          "You can give me any autonomous business mandate, such as:\n" +
-          "- *\"Find three suppliers of 100 office chairs, compare their prices and delivery terms, and prepare a recommendation. You may spend up to $20 on research, but cannot purchase without approval.\"*\n" +
-          "- *\"Research competitor pricing and corridor coverage for cross-border stablecoin payments in LATAM and Africa.\"*\n" +
-          "- *\"Audit past purchases and reconcile all testnet transactions.\"*\n\n" +
-          "Deposit NEAR or Test USDT into your agent wallet, then swap, send, stake, or unstake with one command.";
+        const greetingMsg = "I am **Mandate**, your NEAR wallet and public-source research workspace.\n\n" +
+          "- 🧭 **Orchestrator:** Plans the directive and records spending permissions.\n" +
+          "- 🔍 **Researcher:** Retrieves public pages or free Ref Finance market feeds with source timestamps.\n" +
+          "- 📊 **Analyst:** Compares observed prices, calculates quantity estimates and prepares a recommendation.\n" +
+          "- 🛡️ **Verifier:** Checks source integrity, freshness, coverage and calculations; releases explicitly requested testnet escrow after verification.\n\n" +
+          "Research uses no paid model or API. You can authorize a testnet NEAR research fee, released through escrow after verification. Private quotations and unpublished fees stay marked as missing.\n\n" +
+          "Try **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**, or compare products using their HTTPS links.\n\n" +
+          "Use **Deposit 2 NEAR**, **Swap 2 NEAR for USDT**, **Stake 1 NEAR** or **Unstake 1 NEAR** for wallet actions.";
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
@@ -447,29 +423,31 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
       // Case H: Autonomous Business Mandate Execution
       try {
-        await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
-        const requestId = createHash('sha256').update(userAccount + body + String(req.headers['x-mandate-signature'])).digest('hex');
+        if (researchPaymentRequest(prompt) || /\bescrow\b|past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt)) await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+        const payload = JSON.parse(body);
         const result = await runAutonomousMandate({
-          executor: { label: 'Mandate agent wallet', execute: async args => {
-            if (!store.isAllowed(args.recipient, userAccount)) throw new Error('Research recipient is not on your payable allowlist.');
-            const operation = await agentWallet.execute(userAccount, { id: 'research-' + requestId, action: 'send', asset: 'NEAR', amount: String(Number(args.amountCents) / 1000), recipient: args.recipient });
-            if (operation.status !== 'confirmed') throw new Error(operation.error || 'Wallet transaction needs review.');
-            return { network: nearCfg.network, onchain: true, txHash: operation.txHashes.at(-1)! };
-          } },
+          id: payload.id,
+          store,
           goal: prompt.length > 5 ? prompt : undefined,
           userAccount,
-          executorMode: 'near', // Live on-chain NEAR testnet execution
-          simulateAttack: true
+          ledger: /audit|past purchase|past transaction/i.test(prompt) ? await agentWallet.receipts.list(userAccount) : [],
+          checkReceipt: async operation => {
+            const hash = operation.txHashes.at(-1)!;
+            const signerId = operation.attempt?.signerId || (operation.action === 'deposit' ? userAccount : agentWallet.identity(userAccount).accountId);
+            const receipt: any = await agentWallet.provider.viewTransactionStatusWithReceipts({ txHash: hash, accountId: signerId, waitUntil: 'FINAL' });
+            return { text: auditWalletReceipt(operation, receipt, agentWallet.identity(userAccount).accountId, signerId, { NEAR: agentWallet.nearPool, USDT: agentWallet.usdtPool }), url: agentWallet.explorer(hash) };
+          },
+          settleEscrow: async request => {
+            if (!store.isAllowed(request.recipient, userAccount)) throw new Error('Add the escrow recipient to your payable allowlist first.');
+            return verifiedEscrow.settle(userAccount, request);
+          },
         });
-
-        const bal = Number(await agentWallet.nativeBalance(agentWallet.identity(userAccount).accountId)) / 1e24;
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           type: 'mandate_execution',
           mandateResult: result,
-          treasuryBalance: bal.toFixed(2),
-          message: 'Autonomous business mandate executed with spending limits and restrictions enforced.'
+          message: result.mandate.status === 'completed' ? 'Research workflow completed.' : 'Research completed with evidence or settlement gaps.'
         }));
       } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' });

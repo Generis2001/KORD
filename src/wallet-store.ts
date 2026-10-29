@@ -13,6 +13,10 @@ export interface WalletOperation {
   phase?: 'execution' | 'funding' | 'payout';
   attempt?: { txHash: string; signerId: string; kind: 'storage' | 'execution' | 'funding' | 'payout' };
   createdAt: string;
+  evidenceHash?: string;
+  contractId?: string;
+  mandateId?: string;
+  taskId?: string;
 }
 
 /** Durable receipts and locks; PostgreSQL is authoritative on serverless deployments. */

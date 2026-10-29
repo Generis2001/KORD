@@ -1,12 +1,39 @@
 # Mandate
 
-### Autonomous AI Blockchain Agent on NEAR Testnet
+### Autonomous research and wallet agent on NEAR Testnet
 
-> **Mandate** is an autonomous AI agent that executes real, automated blockchain transactions on the NEAR Testnet. Users can instruct the agent in natural language to perform token swaps, disburse native NEAR, enforce security policies, and manage treasury funds with verifiable on-chain cryptographic receipts.
+> **Mandate** is an autonomous agent that executes real, automated blockchain transactions on the NEAR Testnet. Users can instruct the agent in natural language to perform token swaps, disburse native NEAR, enforce security policies, and manage treasury funds with verifiable on-chain cryptographic receipts.
 
 Live Production URL: **[https://mandateme.vercel.app](https://mandateme.vercel.app)**
 
 ---
+
+## Specialist agents without paid APIs
+
+Mandate runs three separate local specialists under the Orchestrator. No paid model service or API key is used, including when old OpenAI environment variables remain configured. Research fees are optional and use testnet NEAR through verified escrow.
+
+- **Orchestrator:** preserves the requested subject, creates tasks and records the spending directive. Research alone never authorizes a purchase or transfer; fee amounts must be explicit.
+- **Researcher:** retrieves public HTTPS pages, extracts publisher Product/Offer or product-price metadata, and records retrieval timestamps and source hashes. Free search is attempted; if it is blocked, supported subjects use official publisher pages. Users can provide source links directly.
+- **Analyst:** builds an evidence-linked comparison, calculates exact quantity estimates and recommends the lowest observed comparable published price. Missing prices and mixed currencies are handled explicitly.
+- **Verifier:** checks source integrity, freshness, subject coverage, publisher price provenance, arithmetic and requested source counts. Each specialist records its completed task and output. Missing evidence produces a partial report, never an invented quotation or an automatic “audit passed”.
+
+Try **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**. This retrieves free Ref Finance mainnet price and pool feeds; it does not trade and does not price Mandate Test USDT. For supplier comparisons, use **Compare published prices for 10 laptops at https://vendor-a.com/product https://vendor-b.com/product**, replacing those example URLs with actual product pages that publish structured prices.
+
+Public pages may block automated retrieval or omit prices. Negotiated bulk quotations, stock, shipping, tax, private payout fees and unpublished fiat corridor liquidity require vendor evidence; they are never filled with guessed values. Recommendations compare observed prices, not independently certified vendor claims. The workflow uses deterministic local logic, not a generative language model.
+
+### Research fees and verified testnet escrow
+
+There is no automatic research fee. Append **; research fee 0.01 NEAR** or **; pay 0.01 NEAR for research** to authorize a fee to the configured `AGENT_RESEARCHER` (default: `mandate-generis-researcher.testnet`). To choose a different allowlisted recipient, use **; research fee 0.01 NEAR to researcher.testnet** or **; escrow 0.01 NEAR to researcher.testnet**. Fees above an explicit NEAR budget or per-agent cap are blocked. Dollar budgets are not converted into NEAR authorization. The linked user must authorize wallet spending and allowlist the recipient. By default, the existing configured NEAR server account signs verifier approvals, and the deployed testnet escrow is used; no additional API account is needed. The agent wallet funds a new on-chain mandate; the configured verifier then calls the escrow contract's `approve_payment` with the evidence hash. A payment is reported as confirmed only after the contract emits `payment_confirmed`. Limits, recipient and owner checks, durable operation IDs and saved signed hashes protect retries. Missing configuration or incomplete evidence blocks payment.
+
+```env
+ESCROW_CONTRACT_ID=mandate-generis-escrow.testnet
+VERIFIER_ACCOUNT_ID=mandate-generis-verifier.testnet
+VERIFIER_PRIVATE_KEY=ed25519:...
+```
+
+These optional overrides are blockchain account credentials, not paid API keys. Set both verifier override values together. The owner agent and verifier need free faucet testnet NEAR for gas; this research escrow flow rejects mainnet. An ambiguous transaction pauses spending for reconciliation. If a payout fails, reconcile its receipt, then use **Refund escrow m_<mandate-id>** with the exact `mandateId` shown in the saved wallet operation. Mandate closes the owner-controlled mandate and refunds its remaining funds to the agent wallet. Depositing and releasing escrow are separate transactions.
+
+**Audit past purchases in the settlement ledger** loads this wallet's latest 50 stored operations and queries their final NEAR receipts. Missing or mismatched receipts are reported. An empty ledger stays empty; no settlements or compliance percentages are seeded or invented.
 
 ## Conversation history
 
@@ -21,7 +48,7 @@ Each linked NEAR account has its own Mandate-controlled **implicit NEAR account*
 - `Deposit 2 NEAR` or `Deposit 5 USDT`: prepare a transfer for the linked wallet to sign. Deposit NEAR first to activate the agent account and pay network gas. USDT storage registration is included when needed.
 - `Withdraw 2 NEAR` or `Withdraw 5 USDT`: send agent funds back to the linked owner.
 - `Swap 2 NEAR for USDT` or `Swap 5 USDT for NEAR`: transfer the input to the demonstration treasury and the output back to the agent wallet. The testnet rate remains **1 NEAR = 5 Test USDT**; it is not a market price or DEX quote.
-- `Send 2 USDT to alice.testnet` / `Pay 1 NEAR to alice.testnet`: pay from the agent wallet after checking the recipient allowlist. Research payouts also use the user's agent account.
+- `Send 2 USDT to alice.testnet` / `Pay 1 NEAR to alice.testnet`: pay from the agent wallet after checking the recipient allowlist. Research uses no paid API. Optional, explicitly requested research fees use the user's agent account through verified testnet escrow.
 - `Stake 1 NEAR` / `Stake 5 USDT`: deposit to the configured staking provider.
 - `Unstake 1 NEAR` / `Unstake 5 USDT`: start the provider's unbonding process. While an authorized MyNearWallet workspace remains open, Mandate checks every 30 seconds and collects available funds. When the workspace is closed, collection resumes on reopening; this is not a background scheduling service. `Claim 1 NEAR` or the **Withdraw unstaked funds** control also collects matured funds. Injected wallets may require a fresh signature for collection.
 
@@ -71,7 +98,7 @@ Swaps have two on-chain legs and are not atomic. If a network response is ambigu
                                         │
                                         ▼
                     ┌────────────────────────────────────────┐
-                    │         AI Intent Parser (OpenAI)       │
+                    │         Explicit Wallet Command Parser       │
                     │   Extracts: Action, Amount, Recipient   │
                     └───────────────────┬────────────────────┘
                                         │ (Proposal only)
@@ -121,14 +148,14 @@ Here is a recommended 60-second walkthrough to demonstrate Mandate on video:
 
 3. **Policy-Enforced Transfer (0:25 - 0:40):**
    - Type *"Pay 3 NEAR to zeal.testnet"* in the chat.
-   - Watch Mandate check the allowlist, verify available quota, sign the transaction, and settle on-chain.
+   - Watch Mandate check the allowlist, verify available agent funds, sign the transaction, and settle on-chain.
 
 4. **Security & Attack Block (0:40 - 0:50):**
    - Type *"Pay 5,000 NEAR to hacker.testnet"*.
    - Show Mandate's policy engine autonomously blocking the rogue transaction due to spending cap violation and unauthorized recipient.
 
 5. **Settlement Ledger (0:50 - 1:00):**
-   - Open the **Settlement Ledger** to show the complete, immutable audit trail of all confirmed transfers, token swaps, and blocked attack attempts.
+   - Open the **Settlement Ledger** to show the recorded wallet transaction history of all confirmed transfers, token swaps, and blocked attack attempts.
 
 ---
 
@@ -154,8 +181,6 @@ NEAR_ACCOUNT_ID=mandate-generis-treasury.testnet
 NEAR_PRIVATE_KEY=ed25519:...
 TEST_USDT_TOKEN_ID=usdt.fakes.testnet
 DATABASE_URL=postgresql://user:password@host/neondb?sslmode=require
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-6.1-sol
 ```
 
 ### 4. Running Tests & Dev Server
@@ -165,6 +190,13 @@ npm test
 
 # Verify TypeScript compilation
 npm run typecheck
+
+# Run the specialists against live public market feeds without spending funds
+npm run agents:check
+
+# With valid testnet account keys: verify a 0.001 NEAR escrow research fee
+# Allocates 0.03 faucet testnet NEAR to the owner's agent wallet only if needed
+npm run agents:check -- --escrow-test
 
 # Start local server
 npx tsx src/server.ts

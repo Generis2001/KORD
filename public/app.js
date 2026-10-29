@@ -831,7 +831,7 @@ async function handleSubmit() {
     const res = await mandateWallet.fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-mandate-account': conversation.account },
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify({ message: text, id: 'mandate_' + crypto.randomUUID() })
     });
     const data = await res.json();
     renderAssistantResponse(placeholderId, data, true, conversation);
@@ -1019,108 +1019,39 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
     return;
   }
 
-  // 5. Mandate Execution Result (Strictly Aligned Executive Experience with 4 Specialized Roles)
+  // Research receipts always render the recorded verification and settlement state.
   if (data.mandateResult) {
-    if (record && data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
-    const res = data.mandateResult;
-    const txLink = res.payout && res.payout.txHash
-      ? `<a href="https://testnet.nearblocks.io/txns/${res.payout.txHash}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-text); text-decoration:underline; font-family:var(--font-mono);">${res.payout.txHash.slice(0, 16)}...</a>`
-      : null;
-
-    const delegationRows = res.delegation.map(d => `
-      <div style="display:flex; align-items:flex-start; gap:8px;">
-        <span style="color:var(--accent-text); font-weight:600; min-width:85px; text-transform:capitalize;">${escapeHtml(d.role)}:</span>
-        <span style="color:var(--text-secondary); flex:1;">${escapeHtml(d.description)}</span>
-        <code style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(d.agentAccount)}</code>
+    const result = data.mandateResult;
+    const currentWorkflow = Array.isArray(result.deliverable.sources);
+    const passed = currentWorkflow && result.deliverable.verification.passed;
+    const payout = result.payout;
+    const sources = result.deliverable.sources || [];
+    const tasks = result.delegation.map(task => `<li><strong>${escapeHtml(task.role)}</strong> · ${escapeHtml(task.status)}<br>${escapeHtml(task.description)}</li>`).join('');
+    const problems = currentWorkflow ? result.deliverable.verification.problems : ['This historical report predates live source verification. Run a new mandate to check its claims.'];
+    const issues = problems.map(problem => `<li>${escapeHtml(problem)}</li>`).join('');
+    let settlement = 'No research fee requested. No wallet funds were spent.';
+    if (payout.status === 'confirmed' && payout.onchain && payout.txHash) {
+      settlement = `Escrow released ${escapeHtml(payout.amount)} to ${escapeHtml(payout.recipient)}. <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View confirmed receipt ↗</a>`;
+    } else if (payout.status !== 'not_requested') {
+      settlement = `Escrow ${escapeHtml(payout.status)}. ${payout.reasons.map(reason => escapeHtml(reason.message)).join(' ')}${payout.explorerUrl ? ` <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View transaction ↗</a>` : ''}`;
+    }
+    if (!currentWorkflow) settlement = 'Historical settlement record. Source verification is unavailable for this report.' + (payout.explorerUrl ? ` <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View recorded receipt ↗</a>` : '');
+    el.innerHTML = `${mandateAvatar}<div class="message-content">
+      <div class="receipt-card">
+        <h3>${!currentWorkflow ? 'Historical research report' : result.mandate.status === 'completed' ? 'Mandate completed' : 'Mandate needs more evidence or settlement review'}</h3>
+        <p>${escapeHtml(result.mandate.goal)}</p>
+        <p>Research fee: <strong>${currentWorkflow ? payout.status === 'not_requested' ? '0 NEAR' : escapeHtml(payout.amount) + ' · ' + escapeHtml(payout.status) : 'Historical record'}</strong> · Budget: ${escapeHtml(result.budgetState.totalBudget)}</p>
+        <p>${escapeHtml(result.mandate.restrictions[0])}</p>
       </div>
-    `).join('');
-
-    const attacks = (res.attackSimulation && res.attackSimulation.length > 0) ? `
-      <div style="background:var(--danger-soft); border:1px solid var(--danger-border); border-radius:8px; padding:12px;">
-        <div style="font-size:12px; font-weight:600; color:var(--danger); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">
-          Enforced Restrictions & Guardrails (Intercepted Actions)
-        </div>
-        <div style="display:flex; flex-direction:column; gap:8px; font-size:12.5px;">
-          ${res.attackSimulation.map(att => `
-            <div style="background:var(--danger-soft); border-left:3px solid var(--danger); padding:8px 10px; border-radius:4px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:600; color:var(--danger);">${escapeHtml(att.attempt)}</span>
-                <span style="color:var(--danger); font-weight:700; font-size:11px;">🛑 ${att.status}</span>
-              </div>
-              <ul style="margin:4px 0 0 16px; padding:0; color:var(--danger); font-size:11.5px; line-height:1.4;">
-                ${att.reasons.map(r => `<li>${escapeHtml(r.message)}</li>`).join('')}
-              </ul>
-            </div>
-          `).join('')}
-        </div>
-        <div style="font-size:11.5px; color:var(--text-muted); margin-top:8px; font-style:italic;">
-          The agents performed the research autonomously within their permissions, while restricted purchase actions remained strictly under your control.
-        </div>
+      <div class="receipt-card"><h3>Agent workflow</h3><ol>${tasks}</ol></div>
+      <div class="receipt-card"><h3>${passed ? 'Evidence checks passed' : 'Evidence checks found gaps'}</h3>
+        ${issues ? `<ul>${issues}</ul>` : '<p>Source integrity, freshness, coverage and calculations checked.</p>'}
+        <div class="deliverable-body">${renderMarkdownRich(result.deliverable.preview)}</div>
       </div>
-    ` : '';
-
-    el.innerHTML = `
-      ${mandateAvatar}
-      <div class="message-content" style="max-width:100%;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <div style="font-size:15px; font-weight:600; color:var(--text-primary);">
-            Autonomous Mandate Executed · Spending Guardrails Enforced
-          </div>
-          <span style="font-size:11px; color:var(--success); background:var(--success-soft); padding:2px 8px; border-radius:6px; font-weight:600;">
-            ${res.aiModelUsed ? escapeHtml(res.aiModelUsed) : 'OpenAI Agent Pipeline'}
-          </span>
-        </div>
-
-        <!-- 1. Mandate Policy Card -->
-        <div class="receipt-card" style="margin-bottom:12px; background:var(--bg-card); border-color:var(--border-subtle);">
-          <div class="receipt-top">
-            <span style="font-weight:600; color:var(--text-primary); font-size:13.5px;">${escapeHtml(res.mandate.goal)}</span>
-            <span class="receipt-badge-confirmed" style="background:var(--success-soft); color:var(--success); border:1px solid var(--success-border);">ACTIVE</span>
-          </div>
-          <div style="display:flex; flex-wrap:wrap; gap:16px; margin: 10px 0 8px 0; font-size:13px; color:var(--text-muted);">
-            <div>Mandate Budget: <strong style="color:var(--text-primary);">${res.budgetState.totalBudget}</strong></div>
-            <div>Per-Agent Cap: <strong style="color:var(--text-primary);">${res.mandate.perAgentCap}</strong></div>
-            <div>Disbursed: <strong style="color:var(--success);">${res.budgetState.spent}</strong></div>
-            <div>Remaining: <strong style="color:var(--accent-text);">${res.budgetState.remaining}</strong></div>
-          </div>
-          <div style="font-size:12px; padding:6px 10px; background:var(--danger-soft); border:1px solid var(--danger-border); border-radius:6px; color:var(--danger);">
-            🛑 <strong>Active Restriction:</strong> ${escapeHtml(res.mandate.restrictions ? res.mandate.restrictions[0] : 'Purchases prohibited without explicit user authorization.')}
-          </div>
-        </div>
-
-        <!-- 2. Specialized Multi-Agent Roles (Researcher -> Analyst -> Verifier -> Orchestrator) -->
-        <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:10px 12px;">
-          <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Specialized Agent Delegation</div>
-          <div style="display:flex; flex-direction:column; gap:6px; font-size:12.5px;">
-            ${delegationRows}
-          </div>
-        </div>
-
-        <!-- 3. Executive Verified Deliverable -->
-        <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-subtle); padding-bottom:8px;">
-            <div style="font-size:13px; font-weight:600; color:var(--accent-text); text-transform:uppercase; letter-spacing:0.5px;">Verified Executive Deliverable</div>
-            <span style="font-size:11.5px; background:var(--success-soft); color:var(--success); padding:3px 8px; border-radius:12px; font-weight:600;">✓ AUDIT PASSED</span>
-          </div>
-          <div class="deliverable-body" style="font-size:13.5px; line-height:1.65; color:var(--text-secondary);">
-            ${renderMarkdownRich(res.deliverable.preview)}
-          </div>
-        </div>
-
-        <!-- 4. On-Chain Settlement / NEAR Escrow -->
-        <div style="margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:12px;">
-          <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">On-Chain Testnet Settlement</div>
-          <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
-            • <strong>Disbursement:</strong> Paid ${res.payout.amount} to <code style="color:var(--accent-text);">${res.payout.recipient}</code> for verified research services.<br>
-            • <strong>Testnet Transaction:</strong> ${txLink ? txLink + ' (Live on NearBlocks)' : '<em>Pending block inclusion</em>'}<br>
-            • <strong>Policy Audit:</strong> Validated allowlist, verified rubric, under ${res.mandate.perAgentCap} cap.
-          </div>
-        </div>
-
-        <!-- 5. Restriction Guardrails Enforced (Intercepted Actions) -->
-        ${attacks}
-      </div>
-    `;
+      <div class="receipt-card"><h3>Source receipts</h3>${sources.length ? sources.map(source => `<p><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small></p>`).join('') : '<p>No source evidence was retrieved.</p>'}</div>
+      <div class="receipt-card"><h3>Settlement</h3><p>${settlement}</p></div>
+    </div>`;
+    if (record && currentWorkflow && payout.status === 'confirmed') void loadTreasuryBalance();
   }
 }
 
@@ -1145,7 +1076,7 @@ function formatMarkdown(text) {
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline;">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => /^https?:\/\//i.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline;">${label}</a>` : label);
 }
 
 function renderMarkdownRich(md) {

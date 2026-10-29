@@ -1,4 +1,4 @@
-/** All money is stored as integer "logical cents" (bigint). No floats anywhere. */
+/** Legacy policy amounts use integer logical cents. Wallet and escrow transfers use atomic token units. */
 export type Cents = bigint;
 
 export type NearNetwork = "testnet" | "mainnet";
@@ -23,7 +23,7 @@ export interface Mandate {
   status: "active" | "closed";
 }
 
-export type TaskStatus = "pending" | "submitted" | "verified" | "rejected" | "paid";
+export type TaskStatus = "pending" | "submitted" | "verified" | "rejected" | "paid" | "completed" | "blocked";
 
 export interface Task {
   id: string;

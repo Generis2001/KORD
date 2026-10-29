@@ -2,7 +2,7 @@ import { createHash, createHmac, createPrivateKey, createPublicKey } from 'node:
 import { Account, JsonRpcProvider, baseEncode, teraToGas, actions, PublicKey, createTransaction, encodeTransaction, baseDecode } from 'near-api-js';
 import type { Action } from 'near-api-js';
 import type { KeyPairString } from 'near-api-js';
-import { assertNetworkSafety, type NearConfig } from './near.js';
+import { assertNetworkSafety, parseEscrowEvents, type NearConfig } from './near.js';
 import { WalletStore, type WalletOperation } from './wallet-store.js';
 import { TEST_USDT_TOKEN_ID, TEST_USDT_DECIMALS, DEMO_EXCHANGE_RATE, STORAGE_DEPOSIT_YOCTO } from './swap.js';
 
@@ -219,6 +219,7 @@ export class AgentWallet {
         if (output > liquidity) throw new Error('Insufficient demonstration swap pool liquidity.');
       }
       const op: WalletOperation = { id: request.id, userAccount: user, action, asset, amount: request.amount, recipient, status: 'pending', phase: action === 'swap' ? 'funding' : 'execution', txHashes: [], createdAt: new Date().toISOString() };
+      if (['stake', 'unstake', 'claim'].includes(action)) op.contractId = pool;
       await this.receipts.save(op);
       try {
         let result: any;
@@ -284,6 +285,11 @@ export class AgentWallet {
           } else if (op.action === 'stake' && op.asset === 'USDT' && BigInt(JSON.parse(Buffer.from(result.status.SuccessValue, 'base64').toString() || '"0"')) !== units(op.amount, 6)) {
             op.status = 'failed';
             op.error = 'The provider refunded some or all tokens. Check the on-chain staking position.';
+          } else if (op.action === 'escrow_release' && (!parseEscrowEvents(result).confirmed || parseEscrowEvents(result).failed)) {
+            if (!parseEscrowEvents(result).failed) throw new Error('Escrow payout has no confirmed payment event.');
+            op.status = 'failed'; op.error = 'Escrow reported payment_failed; funds remain in the contract.';
+          } else if (op.action === 'escrow_refund' && Buffer.from(result.status.SuccessValue || '', 'base64').toString() !== 'true') {
+            op.status = 'failed'; op.error = 'Escrow refund failed; funds remain in the contract.';
           } else { op.status = 'confirmed'; delete op.error; }
         } catch (error: any) {
           const failures = [result.status?.Failure, ...(result.receipts_outcome || []).map((r: any) => r.outcome?.status?.Failure)];

@@ -4,7 +4,7 @@ import type { KeyPairString } from "near-api-js";
 import { assertTestnet, loadNearConfig } from "../src/near.js";
 
 /**
- * Owner (treasury) creates and funds the onchain mandate used by `DEMO_EXECUTOR=escrow npm run demo`.
+ * Manual contract smoke-test setup. The app creates its own per-request escrow mandates.
  * Budget $20.00 = 2000 cents, per-agent cap $5.00 = 500 cents, mapped to NEAR via YOCTO_PER_CENT.
  * Usage: npm run escrow:setup            (MANDATE_ID defaults to demo-1)
  */

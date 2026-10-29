@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Store } from "../src/db.js";
 import { MockExecutor } from "../src/near.js";
-import { planTasks, submitDeliverable } from "../src/orchestrator.js";
+import { planTasks } from "../src/orchestrator.js";
 import { requestPayment } from "../src/treasury.js";
 import type { Mandate, Task } from "../src/types.js";
 
 const agents = { researcher: "r.testnet", analyst: "a.testnet", verifier: "v.testnet" };
-const report =
-  "Pricing: A charges 0.5%. Target customers: merchants and payroll platforms. Competitive advantage: broad corridor coverage and fast settlement across many regions. ".repeat(2);
 let store: Store, exec: MockExecutor, mandate: Mandate, tasks: Task[];
 
 beforeEach(() => {
@@ -23,7 +21,7 @@ const pay = (i: number, who: string, amount: bigint) =>
 
 describe("treasury flow", () => {
   it("pays a verified task and marks it paid, flagged not-onchain for the mock", async () => {
-    submitDeliverable(store, tasks[0].id, report, ["e1", "e2"]);
+    store.updateTask(tasks[0].id, { status: "verified", evidence: ["audited-test-evidence"] });
     const o = await pay(0, agents.researcher, 400n);
     expect(o.status).toBe("confirmed");
     expect(o.onchain).toBe(false);
@@ -38,21 +36,21 @@ describe("treasury flow", () => {
     expect(store.getSpendState("m1").totalSpent).toBe(0n);
     expect(store.auditLog("m1").some((e) => e.event === "PAYMENT_DENIED")).toBe(true);
   });
-  it("rejects weak deliverables and increments retries", () => {
-    const r = submitDeliverable(store, tasks[0].id, "too short", []);
-    expect(r.passed).toBe(false);
-    expect(store.getTask(tasks[0].id).status).toBe("rejected");
-    expect(store.getTask(tasks[0].id).retries).toBe(1);
+  it("rejects unverified work without executing a payment", async () => {
+    const result = await pay(0, agents.researcher, 400n);
+    expect(result.status).toBe("denied");
+    expect(result.decision.reasons.map(reason => reason.code)).toContain("TASK_NOT_VERIFIED");
+    expect(exec.calls).toHaveLength(0);
   });
   it("cannot pay the same task twice", async () => {
-    submitDeliverable(store, tasks[0].id, report, ["e1", "e2"]);
+    store.updateTask(tasks[0].id, { status: "verified", evidence: ["audited-test-evidence"] });
     await pay(0, agents.researcher, 400n);
     const again = await pay(0, agents.researcher, 100n);
     expect(again.status).toBe("denied");
     expect(again.decision.reasons.map((r) => r.code)).toContain("TASK_ALREADY_PAID");
   });
   it("a failed execution releases the reserved budget and leaves the task payable", async () => {
-    submitDeliverable(store, tasks[0].id, report, ["e1", "e2"]);
+    store.updateTask(tasks[0].id, { status: "verified", evidence: ["audited-test-evidence"] });
     exec.failNext = true;
     const o = await pay(0, agents.researcher, 400n);
     expect(o.status).toBe("failed");
@@ -61,7 +59,7 @@ describe("treasury flow", () => {
     expect((await pay(0, agents.researcher, 400n)).status).toBe("confirmed");
   });
   it("concurrent requests cannot overspend the per-agent cap", async () => {
-    submitDeliverable(store, tasks[0].id, report, ["e1", "e2"]);
+    store.updateTask(tasks[0].id, { status: "verified", evidence: ["audited-test-evidence"] });
     const results = await Promise.all([pay(0, agents.researcher, 400n), pay(0, agents.researcher, 400n)]);
     expect(results.filter((r) => r.status === "confirmed")).toHaveLength(1);
     expect(store.getSpendState("m1").totalSpent).toBeLessThanOrEqual(500n);
@@ -71,7 +69,7 @@ describe("treasury flow", () => {
     store.createMandate(m2);
     const ts = planTasks(m2, agents);
     ts.forEach((t) => store.createTask(t));
-    for (const t of ts) submitDeliverable(store, t.id, report, ["e1", "e2"]);
+    for (const t of ts) store.updateTask(t.id, { status: "verified", evidence: ["audited-test-evidence"] });
     for (const t of ts) await requestPayment(store, exec, { mandateId: "m2", taskId: t.id, recipient: t.agentAccount, amount: 300n, asset: "NEAR", proposedBy: "test" });
     expect(store.getSpendState("m2").totalSpent).toBeLessThanOrEqual(700n);
   });
