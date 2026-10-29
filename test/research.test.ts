@@ -13,6 +13,22 @@ const goal = 'Compare published prices for 10 laptops at ' + urls.join(' ');
 const load = () => fixture({ [urls[0]]: product('Laptop A', '100.10'), [urls[1]]: product('Laptop B', '80.25') });
 
 describe('free public-source specialists', () => {
+  it('keeps the exact office-chair directive and streams genuine stage completions', async () => {
+    const request = 'Find three suppliers of 100 office chairs, compare their prices and delivery terms, and prepare a recommendation. You may spend up to $20 on research, but cannot purchase without approval';
+    const progress = vi.fn();
+    const source: SourceLoader = vi.fn(async url => {
+      if (url.includes('duckduckgo')) throw new Error('Search blocked');
+      return { url, body: product('Office Chair', '100'), contentType: 'text/html', retrievedAt: new Date().toISOString() };
+    });
+    const result = await runAutonomousMandate({ goal: request, loadSource: source, onProgress: progress });
+    expect(result.mandate).toMatchObject({ domain: 'procurement', goal: request, requestedGoal: request });
+    expect(result.deliverable.sources).toHaveLength(3);
+    expect(result.deliverable.preview).toContain('10000 USD for 100');
+    expect(result.deliverable.preview).not.toMatch(/stablecoin|LATAM|Africa/);
+    expect(result.deliverable.preview).not.toContain('Retrieved');
+    expect(result.deliverable.sources.every(source => /ikea|steelcase|hermanmiller/.test(source.url))).toBe(true);
+    expect(progress.mock.calls.map(([step]) => step.phase)).toEqual(['Orchestrator', 'Researcher', 'Analyst', 'Verifier']);
+  });
   it('retrieves actual publisher observations and computes exact quantity totals', async () => {
     const research = await researchPublicSources(goal, load());
     const analysis = analyzeResearch(research);
@@ -50,6 +66,11 @@ describe('free public-source specialists', () => {
     const research = await researchPublicSources(goal, fixture({ [urls[0]]: product('Office Chair A', '100'), [urls[1]]: product('Office Chair B', '200') }));
     expect(research.sources.every(source => source.prices.length === 0)).toBe(true);
     expect(verifyResearch(goal, research, analyzeResearch(research)).passed).toBe(false);
+  });
+  it('uses a model-name price when its single-product page identifies the requested product type', async () => {
+    const body = product('Steelcase Series 1', '584').replace('<title>Steelcase Series 1</title>', '<title>Steelcase Series 1 Ergonomic Office Chair</title>');
+    const research = await researchPublicSources('Compare prices for 100 office chairs at ' + urls[0], fixture({ [urls[0]]: body }));
+    expect(analyzeResearch(research).rows[0]).toMatchObject({ value: '584', total: '58400' });
   });
   it('keeps missing supplier prices and requested delivery terms as acceptance gaps', async () => {
     const source = fixture({ [urls[0]]: product('Laptop A', '100'), [urls[1]]: '<title>Laptop B</title><p>Laptop B product specifications. Please contact sales for prices and availability. Shipping is quoted separately.</p>' });

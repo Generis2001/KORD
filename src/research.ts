@@ -46,7 +46,7 @@ export function sourceFromPage(page: PublicPage): ResearchSource {
 export function researchPlan(goal: string) {
   const urls = [...new Set((goal.match(/https:\/\/[^\s<>"')]+/g) || []).map(url => url.replace(/[.,;]+$/, '')))];
   const withoutUrls = goal.replace(/https:\/\/\S+/g, '').replace(/;?\s*escrow\s+\d+(?:\.\d+)?\s+NEAR\s+to\s+\S+/gi, '').replace(/(?:you may|spend|budget|up to|no more than)[^.]*[$£€]\s*\d+(?:\.\d+)?[^.]*/gi, '');
-  const subject = withoutUrls.replace(/\b(find|compare|research|identify|gather|published|public|prices?|pricing|suppliers?|vendors?|of|for|the|and|three|two|please|mandate|quotations?|quotes?)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const subject = withoutUrls.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|identify|gather|published|public|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|mandate|quotations?|quotes?)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim();
   const quantity = Number(withoutUrls.match(/\b(\d+)\s+(?:office\s+)?(?:chairs?|laptops?|units?|items?)/i)?.[1] || 1);
   const requestedCount = withoutUrls.match(/\b(three|two|one|\d+)\s+(?:suppliers?|vendors?|providers?|sources?)/i)?.[1]?.toLowerCase();
   const count = requestedCount ? ({ three: 3, two: 2, one: 1 } as Record<string, number>)[requestedCount] || Number(requestedCount) : Math.max(urls.length, 2);
@@ -72,7 +72,7 @@ export async function researchPublicSources(goal: string, load: SourceLoader = l
   if (!urls.length) {
     try { urls = await discover(plan.subject || goal, load); }
     catch { /* Fall back to public publisher pages; never to fabricated content. */ }
-    if (!urls.length && /chair/i.test(plan.subject)) urls = ['https://www.ikea.com/us/en/cat/office-chairs-20654/', 'https://www.steelcase.com/products/office-chairs/series-1/', 'https://www.hermanmiller.com/products/seating/office-chairs/verus-chairs/'];
+    if (!urls.length && /chair/i.test(plan.subject)) urls = ['https://www.ikea.com/us/en/p/markus-office-chair-vissle-dark-gray-90289172/', 'https://store.steelcase.com/seating/office-chairs/steelcase-series-1', 'https://www.hermanmiller.com/products/seating/office-chairs/verus-chairs/'];
     if (!urls.length && /laptop/i.test(plan.subject)) urls = ['https://frame.work/products/laptop-13-gen-intel', 'https://www.dell.com/en-us/shop/laptops/scr/laptops', 'https://www.lenovo.com/us/en/c/laptops/'];
     if (!urls.length && /corridor|cross.border|stablecoin/i.test(goal)) urls = ['https://www.bridge.xyz/', 'https://bvnk.com/', 'https://yellowcard.io/'];
     if (!urls.length) gaps.push('No public sources were discovered. Add HTTPS product or pricing links to the mandate.');
@@ -82,7 +82,9 @@ export async function researchPublicSources(goal: string, load: SourceLoader = l
   results.forEach((result, index) => {
     if (result.status === 'fulfilled' && result.value.text.length > 80) {
       const terms = plan.subject.toLowerCase().split(/\W+/).filter(term => term.length > 3 && !['office', 'delivery', 'terms'].includes(term));
-      if (terms.length) result.value.prices = result.value.prices.filter(price => terms.some(term => price.label.toLowerCase().includes(term.replace(/s$/, ''))));
+      const singleProduct = new Set(result.value.prices.map(price => price.label)).size === 1;
+      const productPageMatches = singleProduct && terms.some(term => result.value.title.toLowerCase().includes(term.replace(/s$/, '')));
+      if (terms.length) result.value.prices = result.value.prices.filter(price => productPageMatches || terms.some(term => price.label.toLowerCase().includes(term.replace(/s$/, ''))));
       sources.push(result.value);
     }
     else gaps.push(urls[index] + ': ' + (result.status === 'rejected' ? result.reason.message : 'No readable source content.'));
@@ -163,7 +165,6 @@ export function analyzeResearch(research: ResearchResult) {
     `| ${pool.id} | ${formatReserve(pool.reserves[pool.tokens.indexOf('wrap.near')], 24)} | ${formatReserve(pool.reserves[pool.tokens.indexOf('usdt.tether-token.near')], 6)} | ${Number(pool.tvlUsd).toFixed(2)} | ${(Number(pool.swapFeeBasisPoints) / 100).toFixed(2)}% |`).join('\n') + '\n\nReserves and TVL describe the public DEX pool. They do not guarantee an executable quote or fiat payout capacity.\n\n' : '';
   const report = `# Research for: ${markdown(research.subject)}\n\n## Published observations\n\n${table}\n${liquidityTable}\n## Executive recommendation\n\n${recommendation}\n\n` +
     (research.quantity > 1 ? 'Quantity estimates multiply the published unit price; they are not negotiated quotations and exclude unpublished shipping and tax.\n\n' : '') +
-    research.sources.map(source => `### ${markdown(source.title)}\n\n[Evidence](${source.url}) · Retrieved ${source.retrievedAt}\n\n${source.url === REF_PRICES || source.url === REF_POOLS ? 'The published observations from this feed appear in the tables above.' : markdown(source.text.slice(0, 650))}\n`).join('\n') +
     (research.gaps.length ? '\n## Missing evidence\n\n' + research.gaps.map(gap => '- ' + markdown(gap)).join('\n') : '');
   return { rows, report, recommendation, liquidity };
 }

@@ -6,6 +6,7 @@ const conversationHistories = new Map();
 let conversationAccount;
 let conversationNavigation = 0;
 let conversationMessages = [];
+const pendingMandates = new Map();
 
 // DOM Elements
 const sidebar = document.getElementById('sidebar');
@@ -529,6 +530,7 @@ async function loadAllowlist() {
   try {
     const res = await mandateWallet.fetch('/api/allowlist', { headers: getApiHeaders() });
     const list = await res.json();
+    if (!res.ok || !Array.isArray(list)) throw new Error(list.error || 'Approved payees could not be loaded.');
     if (allowlistBadge) allowlistBadge.textContent = list.length;
     if (list.length === 0) {
       allowlistItemsContainer.innerHTML = '<div class="empty-state">No approved recipients. Add one above.</div>';
@@ -562,6 +564,7 @@ addAccountBtn.addEventListener('click', async () => {
       body: JSON.stringify({ accountId: acc, label })
     });
     const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'The payee could not be saved.');
     if (data.success) {
       newAccountInput.value = '';
       newAccountLabel.value = '';
@@ -579,11 +582,13 @@ addAccountBtn.addEventListener('click', async () => {
 window.removeAllowlist = async function(accountId) {
   if (!confirm('Remove ' + accountId + ' from approved allowlist?')) return;
   try {
-    await mandateWallet.fetch('/api/allowlist', {
+    const res = await mandateWallet.fetch('/api/allowlist', {
       method: 'DELETE',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId })
     });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'The payee could not be removed.');
     showToast('Removed ' + accountId);
     loadAllowlist();
   } catch (err) {
@@ -761,13 +766,15 @@ function resetChatToNew() {
 function renderConversationMessages() {
   messagesStream.replaceChildren();
   heroScreen.style.display = conversationMessages.length ? 'none' : 'flex';
+  let directive = null;
   for (const message of conversationMessages) {
-    if (message.role === 'user') appendUserMessage(message.text, false);
+    if (message.role === 'user') { directive = message.text; appendUserMessage(message.text, false); }
     else if (message.data) {
       const id = 'msg-' + crypto.randomUUID();
       appendAssistantLoading(id);
-      renderAssistantResponse(id, message.data, false);
+      renderAssistantResponse(id, message.data, false, { historical: true, text: directive });
     }
+    if (message.role === 'user' && message.requestId && pendingMandates.has(message.requestId)) appendAssistantLoading('loading-' + message.requestId, pendingMandates.get(message.requestId));
   }
   chatContainer.scrollTop = chatContainer.scrollHeight;
 }
@@ -817,23 +824,28 @@ async function handleSubmit() {
     return;
   }
 
-  const conversation = { account: currentAccount, id: activeConversationId };
+  const conversation = { account: currentAccount, id: activeConversationId, requestId: 'mandate_' + crypto.randomUUID(), text, steps: [] };
+  pendingMandates.set(conversation.requestId, conversation);
   heroScreen.style.display = 'none';
-  appendUserMessage(text, true);
+  appendUserMessage(text, true, conversation.requestId);
   promptInput.value = '';
   promptInput.style.height = 'auto';
 
-  const placeholderId = 'loading-' + crypto.randomUUID();
-  appendAssistantLoading(placeholderId);
+  const placeholderId = 'loading-' + conversation.requestId;
+  appendAssistantLoading(placeholderId, conversation);
   chatContainer.scrollTop = chatContainer.scrollHeight;
 
   try {
     const res = await mandateWallet.fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-mandate-account': conversation.account },
-      body: JSON.stringify({ message: text, id: 'mandate_' + crypto.randomUUID() })
+      body: JSON.stringify({ message: text, id: conversation.requestId, stream: true })
     });
-    const data = await res.json();
+    const data = await MandateChat.read(res, conversation, step => {
+      conversation.steps.push(step);
+      if (conversation.account === currentAccount && conversation.id === activeConversationId) updateMandateProgress(placeholderId, conversation);
+    });
+    pendingMandates.delete(conversation.requestId);
     renderAssistantResponse(placeholderId, data, true, conversation);
     if (conversation.account !== currentAccount || conversation.id !== activeConversationId) return;
     if (data.type === 'wallet_deposit' && data.deposit) {
@@ -856,6 +868,7 @@ async function handleSubmit() {
     loadTreasuryBalance();
     loadLedger();
   } catch (err) {
+    pendingMandates.delete(conversation.requestId);
     renderAssistantResponse(placeholderId, {
       type: 'text',
       message: '❌ Error communicating with Mandate: ' + err.message
@@ -863,9 +876,9 @@ async function handleSubmit() {
   }
 }
 
-function appendUserMessage(text, record = true) {
+function appendUserMessage(text, record = true, requestId = undefined) {
   if (record) {
-    historyFor(currentAccount).append(activeConversationId, { role: 'user', text });
+    historyFor(currentAccount).append(activeConversationId, { role: 'user', text, requestId });
   }
   const row = document.createElement('div');
   row.className = 'message-row user';
@@ -874,7 +887,7 @@ function appendUserMessage(text, record = true) {
 }
 
 // Mandate loading indicator
-function appendAssistantLoading(id) {
+function appendAssistantLoading(id, request = null) {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   row.id = id;
@@ -890,13 +903,35 @@ function appendAssistantLoading(id) {
     </div>
   `;
   messagesStream.appendChild(row);
+  if (request) updateMandateProgress(id, request);
+}
+
+function runDisclosure(label, body, running = false, open = false) {
+  return `<details class="mandate-run${running ? ' is-running' : ''}"${open ? ' open' : ''}>
+    <summary><svg class="run-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg><span class="run-label"${running ? ' role="status"' : ''}>${escapeHtml(label)}</span></summary>
+    <div class="mandate-run-details">${body}</div></details>`;
+}
+
+function runSteps(steps) {
+  return `<ol class="run-steps">${steps.map(step => `<li><span>${escapeHtml(step.phase)}</span><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></li>`).join('')}</ol>`;
+}
+
+function updateMandateProgress(id, request) {
+  const content = document.getElementById(id)?.querySelector('.message-content');
+  if (!content) return;
+  const open = content.querySelector('details')?.open || false;
+  const last = request.steps.at(-1);
+  const next = { Orchestrator: 'Researching sources…', Researcher: 'Comparing findings…', Analyst: 'Checking evidence…', Verifier: 'Finishing your report…' };
+  const label = next[last?.phase] || 'Working on your mandate…';
+  content.innerHTML = runDisclosure(label, `<h4>Agent workflow</h4>${request.steps.length ? runSteps(request.steps) : '<p>Waiting for the workflow to start.</p>'}`, true, open);
 }
 
 function renderAssistantResponse(id, data, record = true, conversation = null) {
   if (record) {
     const owner = conversation?.account || currentAccount;
     const thread = conversation?.id || activeConversationId;
-    historyFor(owner)?.append(thread, { role: 'assistant', data });
+    if (conversation?.requestId) historyFor(owner)?.reply(thread, conversation.requestId, data);
+    else historyFor(owner)?.append(thread, { role: 'assistant', data });
     if (owner !== currentAccount || thread !== activeConversationId) return;
   }
   const el = document.getElementById(id);
@@ -1022,6 +1057,7 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
   // Research receipts always render the recorded verification and settlement state.
   if (data.mandateResult) {
     const result = data.mandateResult;
+    const mismatchedHistory = conversation?.historical && conversation.text && !MandateChat.matchesGoal(result.mandate, conversation.text);
     const currentWorkflow = Array.isArray(result.deliverable.sources);
     const passed = currentWorkflow && result.deliverable.verification.passed;
     const payout = result.payout;
@@ -1036,20 +1072,19 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
       settlement = `Escrow ${escapeHtml(payout.status)}. ${payout.reasons.map(reason => escapeHtml(reason.message)).join(' ')}${payout.explorerUrl ? ` <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View transaction ↗</a>` : ''}`;
     }
     if (!currentWorkflow) settlement = 'Historical settlement record. Source verification is unavailable for this report.' + (payout.explorerUrl ? ` <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View recorded receipt ↗</a>` : '');
+    const label = mismatchedHistory ? 'Saved report for another directive' : !currentWorkflow ? 'Historical research report' : result.mandate.status === 'completed' ? 'Mandate completed' : 'Mandate needs more evidence or settlement review';
+    const open = el.querySelector('.mandate-run')?.open || false;
+    const details = `<p class="run-directive">${escapeHtml(result.mandate.goal)}</p>
+      <p>Research fee: <strong>${currentWorkflow ? payout.status === 'not_requested' ? '0 NEAR' : escapeHtml(payout.amount) + ' · ' + escapeHtml(payout.status) : 'Historical record'}</strong> · Budget: ${escapeHtml(result.budgetState.totalBudget)}</p>
+      <p>${escapeHtml(result.mandate.restrictions?.[0] || 'Purchases require explicit authorization.')}</p>
+      <h4>Agent workflow</h4>${result.steps?.length ? runSteps(result.steps) : `<ol>${tasks}</ol>`}
+      <h4>${passed ? 'Evidence checks passed' : 'Evidence checks found gaps'}</h4>
+      ${issues ? `<ul>${issues}</ul>` : '<p>Source integrity, freshness, coverage and calculations checked.</p>'}
+      <h4>Source receipts</h4>${sources.length ? sources.map(source => `<p class="run-source"><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small>${source.excerpt ? `<span>${escapeHtml(source.excerpt)}</span>` : ''}</p>`).join('') : '<p>No source evidence was retrieved.</p>'}
+      <h4>Settlement</h4><p>${settlement}</p>${mismatchedHistory ? `<h4>Recorded report</h4><div class="deliverable-body">${renderMarkdownRich(result.deliverable.preview)}</div>` : ''}`;
     el.innerHTML = `${mandateAvatar}<div class="message-content">
-      <div class="receipt-card">
-        <h3>${!currentWorkflow ? 'Historical research report' : result.mandate.status === 'completed' ? 'Mandate completed' : 'Mandate needs more evidence or settlement review'}</h3>
-        <p>${escapeHtml(result.mandate.goal)}</p>
-        <p>Research fee: <strong>${currentWorkflow ? payout.status === 'not_requested' ? '0 NEAR' : escapeHtml(payout.amount) + ' · ' + escapeHtml(payout.status) : 'Historical record'}</strong> · Budget: ${escapeHtml(result.budgetState.totalBudget)}</p>
-        <p>${escapeHtml(result.mandate.restrictions[0])}</p>
-      </div>
-      <div class="receipt-card"><h3>Agent workflow</h3><ol>${tasks}</ol></div>
-      <div class="receipt-card"><h3>${passed ? 'Evidence checks passed' : 'Evidence checks found gaps'}</h3>
-        ${issues ? `<ul>${issues}</ul>` : '<p>Source integrity, freshness, coverage and calculations checked.</p>'}
-        <div class="deliverable-body">${renderMarkdownRich(result.deliverable.preview)}</div>
-      </div>
-      <div class="receipt-card"><h3>Source receipts</h3>${sources.length ? sources.map(source => `<p><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small></p>`).join('') : '<p>No source evidence was retrieved.</p>'}</div>
-      <div class="receipt-card"><h3>Settlement</h3><p>${settlement}</p></div>
+      ${runDisclosure(label, details, false, open)}
+      <div class="mandate-answer deliverable-body">${mismatchedHistory ? '<p>This saved response belongs to another directive. Its original report is available in the disclosure above. Send your current request again for a fresh result.</p>' : renderMarkdownRich(result.deliverable.preview)}</div>
     </div>`;
     if (record && currentWorkflow && payout.status === 'confirmed') void loadTreasuryBalance();
   }
@@ -1091,7 +1126,7 @@ function renderMarkdownRich(md) {
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       if (!inTable) {
         if (inList) { html += '</ul>'; inList = false; }
-        html += '<table class="deliverable-table" style="width:100%; border-collapse:collapse; margin:10px 0; font-size:12.5px;">';
+        html += '<div class="deliverable-table-scroll" role="region" aria-label="Comparison table" tabindex="0"><table class="deliverable-table" style="width:100%; border-collapse:collapse; margin:10px 0; font-size:12.5px;">';
         inTable = true;
       }
       if (trimmed.includes('---')) continue;
@@ -1099,7 +1134,7 @@ function renderMarkdownRich(md) {
       html += '<tr>' + cells.map(c => '<td style="padding:6px 10px; border:1px solid var(--border-subtle);">' + formatMarkdown(c) + '</td>').join('') + '</tr>';
       continue;
     } else if (inTable) {
-      html += '</table>';
+      html += '</table></div>';
       inTable = false;
     }
 
@@ -1120,7 +1155,7 @@ function renderMarkdownRich(md) {
     }
   }
 
-  if (inTable) html += '</table>';
+  if (inTable) html += '</table></div>';
   if (inList) html += '</ul>';
   return html;
 }

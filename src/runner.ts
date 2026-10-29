@@ -24,11 +24,12 @@ export interface MandateRunOptions {
   ledger?: WalletOperation[];
   checkReceipt?: (operation: WalletOperation) => Promise<{ text: string; url: string }>;
   settleEscrow?: (request: EscrowRequest) => Promise<WalletOperation>;
+  onProgress?: (step: MandateRunResult['steps'][number]) => void;
 }
 export interface MandateRunResult {
-  mandate: { id: string; goal: string; domain: string; totalBudget: string; perAgentCap: string; allowedAsset: string; status: string; allowedRecipients: string[]; allowedServices: string[]; restrictions: string[] };
+  mandate: { id: string; goal: string; requestedGoal: string; domain: string; totalBudget: string; perAgentCap: string; allowedAsset: string; status: string; allowedRecipients: string[]; allowedServices: string[]; restrictions: string[] };
   delegation: { taskId: string; role: string; agentAccount: string; description: string; status: string }[];
-  deliverable: { taskId: string; agent: string; preview: string; evidence: string[]; verification: { passed: boolean; problems: string[] }; sources: { url: string; title: string; retrievedAt: string; hash: string }[] };
+  deliverable: { taskId: string; agent: string; preview: string; evidence: string[]; verification: { passed: boolean; problems: string[] }; sources: { url: string; title: string; retrievedAt: string; hash: string; excerpt?: string }[] };
   payout: { status: string; amount: string; recipient: string; onchain: boolean; txHash: string | null; explorerUrl: string | null; reasons: { code: string; message: string }[] };
   budgetState: { totalBudget: string; spent: string; remaining: string; agentSpent: Record<string, string> };
   steps: { phase: string; title: string; detail: string; badge: 'success' | 'warning' | 'error' | 'info' }[];
@@ -71,12 +72,13 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
   const agents = { researcher: 'local-source-researcher', analyst: 'local-comparison-analyst', verifier: 'local-evidence-verifier' };
   const mandate: Mandate = { id, goal: researchGoal, totalBudget: 0n, perAgentCap: 0n, allowedRecipients: payment ? [payment.recipient] : [], allowedAsset: 'NEAR', allowedServices: ['public_source_research', 'evidence_verification'], restrictedActions: [{ action: 'purchase', requiresApproval: true, reason: restrictions[0] }], maxRetries: 0, status: 'active' };
   const steps: MandateRunResult['steps'] = [];
+  const progress = (step: MandateRunResult['steps'][number]) => { steps.push(step); opts.onProgress?.(step); };
   try {
     store.createMandate(mandate);
     if (payment) store.audit(id, 'RESEARCH_FEE_AUTHORIZED', { asset: 'testnet NEAR', amount: payment.amount, budget: payment.ceiling || payment.amount, perAgentCap: payment.perAgentCap || payment.amount, recipient: payment.recipient });
     const tasks = planTasks(mandate, agents);
     tasks.forEach(task => store.createTask(task));
-    steps.push({ phase: 'Orchestrator', title: 'Plan and permissions set', detail: `Goal: ${researchGoal}. ${payment ? 'Authorized research fee: ' + payment.amount + ' testnet NEAR.' : 'No research fee or transaction requested.'} Paid API cost: $0.`, badge: 'info' });
+    progress({ phase: 'Orchestrator', title: 'Plan and permissions set', detail: `Goal: ${researchGoal}. ${payment ? 'Authorized research fee: ' + payment.amount + ' testnet NEAR.' : 'No research fee or transaction requested.'} Paid API cost: $0.`, badge: 'info' });
 
     const research = domain === 'past_purchases' ? await auditLedger(opts)
       : domain === 'stablecoin_corridor' && nearMarketTopic(topic) ? await researchNearMarket(opts.loadSource)
@@ -84,13 +86,13 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
     if (domain === 'stablecoin_corridor' && /cross.border|corridor|remittance/i.test(researchGoal)) research.gaps.push('Private corridor liquidity and negotiated payout fees are not established by public DEX or supplier data.');
     store.updateTask(tasks[0].id, { status: 'completed', evidence: research.sources.map(source => source.url) });
     store.audit(id, 'RESEARCH_COMPLETED', { sources: research.sources.map(({ url, retrievedAt, hash }) => ({ url, retrievedAt, hash })), gaps: research.gaps });
-    steps.push({ phase: 'Researcher', title: 'Public sources retrieved', detail: `${research.sources.length} source observations; ${research.gaps.length} retrieval or coverage gaps.`, badge: research.sources.length ? 'success' : 'warning' });
+    progress({ phase: 'Researcher', title: 'Public sources retrieved', detail: `${research.sources.length} source observations; ${research.gaps.length} retrieval or coverage gaps.`, badge: research.sources.length ? 'success' : 'warning' });
 
     const analysis = analyzeResearch(research);
     if (domain === 'past_purchases' && !research.sources.length && !research.gaps.length) analysis.report = '# Settlement audit\n\nNo recorded wallet transactions are available for this account. No settlements or compliance claims were invented.';
     store.updateTask(tasks[1].id, { status: 'completed', evidence: research.sources.map(source => source.url) });
     store.audit(id, 'ANALYSIS_COMPLETED', { rows: analysis.rows });
-    steps.push({ phase: 'Analyst', title: 'Comparison and recommendation built', detail: `${analysis.rows.length} evidence-linked observations. Missing prices are labelled; quantity totals are estimates.`, badge: 'success' });
+    progress({ phase: 'Analyst', title: 'Comparison and recommendation built', detail: `${analysis.rows.length} evidence-linked observations. Missing prices are labelled; quantity totals are estimates.`, badge: 'success' });
 
     const verification = verifyResearch(topic, research, analysis);
     if (/\bescrow\b|research\s+fee|\bpay\b.*for\s+research/i.test(goal) && !payment) { verification.problems.push('Use explicit fee syntax: ; research fee 0.01 NEAR, or ; escrow 0.01 NEAR to researcher.testnet'); verification.passed = false; }
@@ -98,7 +100,7 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
     if (payment && !research.sources.length) { verification.problems.push('Research fees require source evidence; an empty ledger or report cannot authorize payment.'); verification.passed = false; }
     store.updateTask(tasks[2].id, { status: 'completed', evidence: research.sources.map(source => source.hash) });
     store.audit(id, 'VERIFICATION_COMPLETED', verification);
-    steps.push({ phase: 'Verifier', title: verification.passed ? 'Evidence checks passed' : 'Missing or unsupported evidence found', detail: verification.passed ? 'Source integrity, retrieval freshness, subject coverage, price provenance and quantity calculations checked.' : verification.problems.join(' '), badge: verification.passed ? 'success' : 'warning' });
+    progress({ phase: 'Verifier', title: verification.passed ? 'Evidence checks passed' : 'Missing or unsupported evidence found', detail: verification.passed ? 'Source integrity, retrieval freshness, subject coverage, price provenance and quantity calculations checked.' : verification.problems.join(' '), badge: verification.passed ? 'success' : 'warning' });
 
     const payout: MandateRunResult['payout'] = { status: 'not_requested', amount: '0 NEAR', recipient: '', onchain: false, txHash: null, explorerUrl: null, reasons: [] };
     if (payment) {
@@ -123,9 +125,9 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
       const value = decimal(ceiling - released, 24).replace(/\.?0+$/, '');
       remaining = value + ' testnet NEAR of authorization remains' + (payout.status === 'needs_review' ? ' · reconcile escrow before spending' : '');
     } else if (payment?.problem) remaining = 'Fee authorization invalid; payment blocked';
-    return { mandate: { id, goal: researchGoal, domain, totalBudget: budgetLabel, perAgentCap: payment ? (payment.perAgentCap || payment.amount) + ' testnet NEAR' : 'No fee requested', allowedAsset: 'NEAR', status, allowedRecipients: mandate.allowedRecipients, allowedServices: mandate.allowedServices!, restrictions },
+    return { mandate: { id, goal: researchGoal, requestedGoal: goal, domain, totalBudget: budgetLabel, perAgentCap: payment ? (payment.perAgentCap || payment.amount) + ' testnet NEAR' : 'No fee requested', allowedAsset: 'NEAR', status, allowedRecipients: mandate.allowedRecipients, allowedServices: mandate.allowedServices!, restrictions },
       delegation: tasks.map(task => ({ taskId: task.id, role: task.role, agentAccount: task.agentAccount, description: task.description, status: store.getTask(task.id).status })),
-      deliverable: { taskId: tasks[0].id, agent: agents.researcher, preview: analysis.report, evidence: research.sources.map(source => source.url), verification, sources: research.sources.map(({ url, title, retrievedAt, hash }) => ({ url, title, retrievedAt, hash })) }, payout,
+      deliverable: { taskId: tasks[0].id, agent: agents.researcher, preview: analysis.report, evidence: research.sources.map(source => source.url), verification, sources: research.sources.map(({ url, title, retrievedAt, hash, text }) => ({ url, title, retrievedAt, hash, excerpt: text.slice(0, 650) })) }, payout,
       budgetState: { totalBudget: budgetLabel, spent: payout.status === 'confirmed' ? payout.amount : '$0', remaining, agentSpent: payout.status === 'confirmed' ? { [payout.recipient]: payout.amount } : {} }, steps, aiModelUsed: 'Local agent pipeline · no paid APIs' };
   } finally { if (!opts.store) { store.db.close(); await store.pgPool?.end(); } }
 }

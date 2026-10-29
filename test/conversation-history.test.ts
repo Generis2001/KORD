@@ -44,6 +44,19 @@ const user = { role: 'user', text: 'Show my balance' };
 const reply = { role: 'assistant', data: { type: 'text', message: '8 NEAR', txHash: 'receipt' } };
 
 describe('browser conversation persistence', () => {
+  it('pairs overlapping replies with their exact directives, including after reload', async () => {
+    const f = fixture(), history = f.history(), chat = history.create();
+    const corridor = { role: 'user', requestId: 'mandate_corridor', text: 'Research stablecoin corridors in LATAM and Africa' };
+    const chairs = { role: 'user', requestId: 'mandate_chairs', text: 'Find three suppliers of 100 office chairs' };
+    history.append(chat.id, corridor); history.append(chat.id, chairs);
+    const chairReport = { type: 'text', message: 'Office chair comparison' }, corridorReport = { type: 'text', message: 'Stablecoin corridor comparison' };
+    expect(history.reply(chat.id, chairs.requestId, chairReport)).toBe(true);
+    expect(history.reply(chat.id, corridor.requestId, corridorReport)).toBe(true);
+    await history.flush();
+    expect(f.history().get(chat.id).messages).toEqual([corridor, { role: 'assistant', requestId: corridor.requestId, data: corridorReport }, chairs, { role: 'assistant', requestId: chairs.requestId, data: chairReport }]);
+    expect(history.reply(chat.id, corridor.requestId, corridorReport)).toBe(false);
+    expect(history.reply(chat.id, 'unknown-request', reply.data)).toBe(false);
+  });
   it('restores the active conversation and full assistant responses on reload', async () => {
     const f = fixture(), first = f.history();
     const chat = first.create();

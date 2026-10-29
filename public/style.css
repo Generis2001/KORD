@@ -131,6 +131,26 @@ kbd { font-family: var(--font-mono); font-weight: 400; }
 .conversation-sync-status { padding: 0 12px; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
 .conversation-sync-status:empty { display: none; }
 .deliverable-body { min-width: 0; overflow-x: auto; }
+.mandate-run { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.mandate-run > summary { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; list-style: none; cursor: pointer; }
+.mandate-run > summary::-webkit-details-marker { display: none; }
+.mandate-run > summary:hover { color: var(--text-secondary); }
+.run-chevron { align-self: center; transition: transform .18s ease; }
+.mandate-run[open] > summary .run-chevron { transform: rotate(90deg); }
+.mandate-run.is-running .run-label { animation: run-pulse 1.8s ease-in-out infinite; }
+.mandate-run-details { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 8px 7px; padding: 4px 0 4px 16px; border-left: 1px solid var(--border-subtle); color: var(--text-secondary); }
+.mandate-run-details h4 { margin: 8px 0 0; font-size: 12px; font-weight: 500; }
+.mandate-run-details ul, .mandate-run-details ol { padding-left: 18px; }
+.run-directive { color: var(--text-muted); }
+.run-steps { display: flex; flex-direction: column; gap: 12px; }
+.run-steps li > span { display: block; font-size: 10px; color: var(--text-muted); }
+.run-steps li > strong { display: block; font-size: 12px; font-weight: 500; }
+.run-source > span { display: block; margin-top: 6px; color: var(--text-muted); }
+.mandate-answer { color: var(--text-primary); font-size: 14px; line-height: 1.8; }
+.deliverable-table-scroll { max-width: 100%; overflow-x: auto; }
+.deliverable-table-scroll .deliverable-table { min-width: 600px; overflow-wrap: normal; }
+@keyframes run-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .mandate-run.is-running .run-label { animation: none; } .run-chevron { transition: none; } }
 .history-open-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; }
 .sidebar-quick-actions { margin-top: 6px; }
 .sidebar-footer { padding: 16px; }

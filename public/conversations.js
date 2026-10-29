@@ -42,6 +42,20 @@
       const record = this.get(id);
       if (!record || this.deleted.has(id)) return;
       record.messages.push(message);
+      this.changed(record);
+    }
+    reply(id, requestId, data) {
+      const record = this.get(id);
+      if (!record || this.deleted.has(id)) return false;
+      const index = record.messages.findIndex(message => message.role === 'user' && message.requestId === requestId);
+      if (index < 0 || record.messages.some(message => message.role === 'assistant' && message.requestId === requestId)) return false;
+      // Insert beside the exact directive even when a later request finishes first.
+      record.messages.splice(index + 1, 0, { role: 'assistant', requestId, data });
+      this.changed(record);
+      return true;
+    }
+    changed(record) {
+      const id = record.id;
       const first = record.messages.find(message => message.role === 'user');
       record.title = first ? first.text.slice(0,36) + (first.text.length > 36 ? '…' : '') : 'Mandate Session';
       record.updatedAt = new Date().toISOString();

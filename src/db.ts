@@ -54,11 +54,18 @@ export interface Conversation {
 
 
 export const NEON_POSTGRES_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const DEFAULT_PAYEES = [
+  { account_id: 'mandate-generis-researcher.testnet', label: 'Researcher Agent' },
+  { account_id: 'mandate-generis-analyst.testnet', label: 'Analyst Agent' },
+  { account_id: 'mandate-generis-verifier.testnet', label: 'Verifier Agent' },
+  { account_id: 'mandate-generis-escrow.testnet', label: 'NEAR Escrow Contract' },
+];
 
 export class Store {
   readonly pgPool: pg.Pool | null = null;
   readonly db: Database.Database;
   private conversationsReady?: Promise<unknown>;
+  private allowlistReady?: Promise<unknown>;
 
   constructor(path = ":memory:") {
     const isVercel = Boolean(process.env.VERCEL);
@@ -112,6 +119,10 @@ export class Store {
         account_id TEXT PRIMARY KEY, label TEXT NOT NULL,
         user_account TEXT NOT NULL DEFAULT 'default',
         added_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE IF NOT EXISTS payee_profiles (user_account TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS approved_payees (
+        user_account TEXT NOT NULL, account_id TEXT NOT NULL, label TEXT NOT NULL,
+        added_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_account,account_id));
       CREATE TABLE IF NOT EXISTS treasury_state (
         id INTEGER PRIMARY KEY,
         account_id TEXT NOT NULL,
@@ -200,16 +211,6 @@ export class Store {
     if (this.pgPool) {
       this.pgPool.query("INSERT INTO user_accounts (account_id, label, balance_near, balance_usdt) VALUES ($1, $2, $3, $4) ON CONFLICT (account_id) DO NOTHING", [acc, `User ${acc}`, initialBalance, 0]).catch(() => {});
     }
-    // Seed user's personal allowlist with default specialized agents
-    const defaultAgents = [
-      "mandate-generis-researcher.testnet",
-      "mandate-generis-analyst.testnet",
-      "mandate-generis-verifier.testnet",
-      "mandate-generis-escrow.testnet"
-    ];
-    for (const ag of defaultAgents) {
-      this.db.prepare("INSERT OR IGNORE INTO allowlist (account_id, label, user_account) VALUES (?, 'Specialized Agent', ?)").run(ag, acc);
-    }
     return { accountId: acc, balanceNear: initialBalance };
   }
 
@@ -293,23 +294,60 @@ export class Store {
     return newBal;
   }
 
-  // --- Allowlist Operations (User-Aware) ---
-  getAllowlist(userAccount = 'default'): AllowlistEntry[] {
-    const rows = this.db.prepare("SELECT account_id, label, added_at FROM allowlist WHERE user_account=? OR user_account='default' GROUP BY account_id ORDER BY added_at DESC").all(userAccount) as any[];
-    return rows.map((r) => ({ accountId: r.account_id, label: r.label, addedAt: r.added_at }));
+  // --- Durable per-wallet approvals. PostgreSQL never falls back to temporary SQLite. ---
+  private async ensurePayees(userAccount: string) {
+    const account = userAccount.trim().toLowerCase();
+    const legacy = this.db.prepare('SELECT account_id,label FROM allowlist WHERE LOWER(user_account)=?').all(account) as { account_id: string; label: string }[];
+    const seeds = [...new Map([...DEFAULT_PAYEES, ...legacy].map(row => [row.account_id.trim().toLowerCase(), { ...row, account_id: row.account_id.trim().toLowerCase() }])).values()];
+    if (this.pgPool) {
+      await (this.allowlistReady ??= this.pgPool.query(`CREATE TABLE IF NOT EXISTS payee_profiles (user_account TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS approved_payees (user_account TEXT NOT NULL, account_id TEXT NOT NULL, label TEXT NOT NULL,
+          added_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(user_account,account_id))`)).catch(error => { this.allowlistReady = undefined; throw error; });
+      // Creating the profile and its initial payees in one statement prevents reseeding deletions.
+      await this.pgPool.query(`WITH created AS (
+        INSERT INTO payee_profiles(user_account) VALUES($1) ON CONFLICT DO NOTHING RETURNING user_account)
+        INSERT INTO approved_payees(user_account,account_id,label)
+        SELECT created.user_account,seed.account_id,seed.label FROM created
+        CROSS JOIN jsonb_to_recordset($2::jsonb) AS seed(account_id TEXT,label TEXT)
+        ON CONFLICT(user_account,account_id) DO NOTHING`, [account, JSON.stringify(seeds)]);
+    } else {
+      if (process.env.VERCEL) throw new Error('Set DATABASE_URL or POSTGRES_URL to persist approved payees on this deployment.');
+      this.db.transaction(() => {
+        const created = this.db.prepare('INSERT OR IGNORE INTO payee_profiles(user_account) VALUES(?)').run(account);
+        if (created.changes) for (const seed of seeds) this.db.prepare('INSERT OR IGNORE INTO approved_payees(user_account,account_id,label) VALUES(?,?,?)').run(account, seed.account_id, seed.label);
+      })();
+    }
+    return account;
   }
 
-  addToAllowlist(accountId: string, label = "Approved Payee", userAccount = 'default'): void {
-    this.db.prepare("INSERT OR REPLACE INTO allowlist (account_id, label, user_account) VALUES (?, ?, ?)").run(accountId.trim().toLowerCase(), label, userAccount);
+  async getAllowlist(userAccount = 'default'): Promise<AllowlistEntry[]> {
+    const account = await this.ensurePayees(userAccount);
+    const rows = this.pgPool
+      ? (await this.pgPool.query('SELECT account_id,label,added_at FROM approved_payees WHERE user_account=$1 ORDER BY added_at DESC,account_id', [account])).rows
+      : this.db.prepare('SELECT account_id,label,added_at FROM approved_payees WHERE user_account=? ORDER BY added_at DESC,account_id').all(account) as any[];
+    return rows.map(r => ({ accountId: r.account_id, label: r.label, addedAt: r.added_at instanceof Date ? r.added_at.toISOString() : r.added_at }));
   }
 
-  removeFromAllowlist(accountId: string, userAccount = 'default'): boolean {
-    const info = this.db.prepare("DELETE FROM allowlist WHERE account_id=? AND (user_account=? OR user_account='default')").run(accountId.trim().toLowerCase(), userAccount);
-    return info.changes > 0;
+  async addToAllowlist(accountId: string, label = 'Approved Payee', userAccount = 'default'): Promise<void> {
+    const account = await this.ensurePayees(userAccount), payee = accountId.trim().toLowerCase();
+    if (typeof label !== 'string' || !label.trim() || label.length > 200) throw new Error('Use a payee label between 1 and 200 characters.');
+    if (this.pgPool) await this.pgPool.query(`INSERT INTO approved_payees(user_account,account_id,label) VALUES($1,$2,$3)
+      ON CONFLICT(user_account,account_id) DO UPDATE SET label=excluded.label`, [account, payee, label.trim()]);
+    else this.db.prepare(`INSERT INTO approved_payees(user_account,account_id,label) VALUES(?,?,?)
+      ON CONFLICT(user_account,account_id) DO UPDATE SET label=excluded.label`).run(account, payee, label.trim());
   }
 
-  isAllowed(accountId: string, userAccount = 'default'): boolean {
-    const row = this.db.prepare("SELECT 1 FROM allowlist WHERE account_id=? AND (user_account=? OR user_account='default')").get(accountId.trim().toLowerCase(), userAccount);
+  async removeFromAllowlist(accountId: string, userAccount = 'default'): Promise<boolean> {
+    const account = await this.ensurePayees(userAccount), payee = accountId.trim().toLowerCase();
+    if (this.pgPool) return Boolean((await this.pgPool.query('DELETE FROM approved_payees WHERE user_account=$1 AND account_id=$2', [account, payee])).rowCount);
+    return this.db.prepare('DELETE FROM approved_payees WHERE user_account=? AND account_id=?').run(account, payee).changes > 0;
+  }
+
+  async isAllowed(accountId: string, userAccount = 'default'): Promise<boolean> {
+    const account = await this.ensurePayees(userAccount), payee = accountId.trim().toLowerCase();
+    const row = this.pgPool
+      ? (await this.pgPool.query('SELECT 1 FROM approved_payees WHERE user_account=$1 AND account_id=$2', [account, payee])).rows[0]
+      : this.db.prepare('SELECT 1 FROM approved_payees WHERE user_account=? AND account_id=?').get(account, payee);
     return Boolean(row);
   }
 

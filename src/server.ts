@@ -26,6 +26,15 @@ const swapService = new AgentSwapService();
 const agentWallet = new AgentWallet(nearCfg, new WalletStore(store));
 const verifiedEscrow = new VerifiedEscrow(agentWallet);
 
+function readBody(req: http.IncomingMessage) {
+  return new Promise<string>((resolve, reject) => {
+    let value = '';
+    req.on('data', chunk => { value += chunk; });
+    req.on('end', () => resolve(value));
+    req.on('error', reject);
+  });
+}
+
 function getMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
@@ -100,7 +109,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         const request = url.pathname === '/api/swap/execute'
           ? { id: payload.id, action: 'swap', asset: payload.asset || 'NEAR', amount: String(payload.inputNear), minOutput: payload.minOutputUsdt ? String(payload.minOutputUsdt) : undefined }
           : payload;
-        if (request.action === 'send' && !store.isAllowed(request.recipient || '', userAccount)) throw new Error('Add this recipient to your payable allowlist first.');
+        if (request.action === 'send' && !(await store.isAllowed(request.recipient || '', userAccount))) throw new Error('Add this recipient to your payable allowlist first.');
         const operation = await agentWallet.execute(userAccount, request);
         return json(operation.status === 'confirmed' ? 200 : 409, { operation, status: operation.status, txHash: operation.txHashes.at(-1), explorerUrl: operation.txHashes.length ? agentWallet.explorer(operation.txHashes.at(-1)!) : null });
       } catch (e: any) { return json(400, { error: e.message }); }
@@ -151,55 +160,22 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   // 3. /api/allowlist (GET, POST, DELETE)
   if (url.pathname === '/api/allowlist') {
+    res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'GET') {
-      const list = store.getAllowlist(userAccount);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify(list));
+      try { return json(200, await store.getAllowlist(userAccount)); }
+      catch (error: any) { return json(503, { error: error.message }); }
     }
 
-    if (req.method === 'POST') {
-      let body = '';
-      req.on('data', c => { body += c; });
-      req.on('end', async () => {
-        try {
-          await verifyWalletRequest(agentWallet.provider, userAccount, req.method!, url.pathname, body, req.headers);
-          const { accountId, label } = JSON.parse(body || '{}');
-          if (!accountId) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'accountId is required' }));
-          }
-          if (typeof accountId !== 'string' || !validAccount(accountId.trim().toLowerCase())) throw new Error('Invalid recipient account ID.');
-          store.addToAllowlist(accountId.trim().toLowerCase(), label || 'Approved Recipient', userAccount);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, list: store.getAllowlist(userAccount) }));
-        } catch (e: any) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
-    }
-
-    if (req.method === 'DELETE') {
-      let body = '';
-      req.on('data', c => { body += c; });
-      req.on('end', async () => {
-        try {
-          await verifyWalletRequest(agentWallet.provider, userAccount, req.method!, url.pathname, body, req.headers);
-          const { accountId } = JSON.parse(body || '{}');
-          if (!accountId) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'accountId is required' }));
-          }
-          store.removeFromAllowlist(accountId.trim().toLowerCase(), userAccount);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, list: store.getAllowlist(userAccount) }));
-        } catch (e: any) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
+    if (req.method === 'POST' || req.method === 'DELETE') {
+      const body = await readBody(req);
+      try {
+        await verifyWalletRequest(agentWallet.provider, userAccount, req.method, url.pathname, body, req.headers);
+        const { accountId, label } = JSON.parse(body || '{}');
+        if (typeof accountId !== 'string' || !validAccount(accountId.trim().toLowerCase())) throw new Error('Invalid recipient account ID.');
+        if (req.method === 'POST') await store.addToAllowlist(accountId, label || 'Approved Recipient', userAccount);
+        else await store.removeFromAllowlist(accountId, userAccount);
+        return json(200, { success: true, list: await store.getAllowlist(userAccount) });
+      } catch (error: any) { return json(500, { error: error.message }); }
     }
   }
 
@@ -286,174 +262,178 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   // 6. /api/chat (Handles natural language directives & autonomous mandates)
   if (url.pathname === '/api/chat' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', async () => {
-      let prompt = '';
+    res.setHeader('Cache-Control', 'no-store, no-transform');
+    const body = await readBody(req);
+    let payload: { message?: string; id?: string; stream?: boolean };
+    let prompt = '';
+    try {
+      payload = JSON.parse(body || '{}');
+      if (typeof payload.message !== 'string') throw new Error('Missing directive');
+      prompt = payload.message.trim();
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+    }
+
+    const lower = prompt.toLowerCase();
+
+
+    try {
+      const refund = prompt.trim().match(/^(?:mandate\s+)?refund escrow (m_[a-f0-9]{40})$/i);
+      if (refund) {
+        await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+        const operation = await verifiedEscrow.refund(userAccount, refund[1].toLowerCase());
+        return json(200, { type: 'text', operation, message: operation.status === 'confirmed' && operation.action === 'escrow_refund'
+          ? `Escrow refunded **${operation.amount} testnet NEAR** to your agent wallet. [View receipt](${agentWallet.explorer(operation.txHashes.at(-1)!)})`
+          : `Escrow refund needs review: ${operation.error || operation.status}. Reconcile operation \`${operation.id}\` before retrying.` });
+      }
+      const command = parseWalletCommand(prompt);
+      if (command) {
+        if (command.action === 'deposit') {
+          const deposit = await agentWallet.prepareDeposit(userAccount, command.asset, command.amount);
+          return json(200, { type: 'wallet_deposit', deposit, message: `Deposit **${command.amount} ${command.asset}** into your Mandate agent wallet. Sign the transfer in your linked wallet to complete it.` });
+        }
+        await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+        if (command.action === 'send' && !(await store.isAllowed(command.recipient!, userAccount))) {
+          if (/add\s+to\s+allowlist|approve/i.test(lower)) await store.addToAllowlist(command.recipient!, 'User approved payee', userAccount);
+          else return json(200, { type: 'text', message: `Add \`${command.recipient}\` to your payable allowlist before sending funds.` });
+        }
+        const id = 'chat-' + createHash('sha256').update(userAccount + body + String(req.headers['x-mandate-signature'])).digest('hex');
+        const operation = await agentWallet.execute(userAccount, { ...command, id });
+        const receipts = operation.txHashes.map(hash => `[View transaction](${agentWallet.explorer(hash)})`).join(' · ');
+        return json(200, { type: 'text', operation,
+          message: operation.status === 'confirmed'
+            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? 'The swapped funds remain in your agent wallet. This uses the testnet demonstration rate of 1 NEAR = 5 Test USDT.\n\n' : ''}${receipts}`
+            : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
+      }
+      if (/^(?:please\s+)?(?:mandate[, :]*)?\s*(?:stake|unstake|withdraw|deposit|swap|exchange|send|transfer|pay|fund)\b/i.test(lower)) {
+        return json(200, { type: 'text', message: 'Use a single command such as **Deposit 2 NEAR**, **Withdraw 5 USDT**, **Stake 1 NEAR**, **Unstake 3 USDT**, or **Send 2 USDT to alice.testnet**.' });
+      }
+    } catch (e: any) { return json(200, { type: 'text', message: e.message }); }
+
+    // Case A.2: Faucet Queries & Directives
+    if (/\b(?:received|got|claimed)\s+[0-9.]+\s*(?:near|usdt)\b/i.test(lower)) {
+      return json(200, { type: 'text', message: 'Funds received in your linked wallet stay there until you deposit them into your agent wallet. Use **Deposit 2 NEAR** or **Deposit 5 USDT** to sign a transfer.' });
+    }
+    if (/\b(?:faucet|claim near|get testnet near|free near|near faucet)\b/i.test(lower)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        type: 'text',
+        message: `💧 **NEAR Testnet Faucet:**\n\n` +
+          `You can request free Testnet NEAR by visiting **[near-faucet.io](https://near-faucet.io/)** (or clicking the **Faucet** button in the top navigation bar).\n\n` +
+          `Once claimed into your connected wallet, deposit the funds into your **Mandate Treasury** (Agentic Wallet) to authorize autonomous agent execution, token swaps, and policy transfers.`
+      }));
+    }
+
+    if (/balance|wallet info|staking position/i.test(lower)) {
       try {
-        const parsed = JSON.parse(body || '{}');
-        prompt = (parsed.message || '').trim();
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
-      }
+        const wallet = await agentWallet.snapshot(userAccount);
+        return json(200, { type: 'text', ...wallet,
+          message: `**Mandate agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${Number(wallet.userUsdt).toFixed(2)} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
+      } catch (e: any) { return json(503, { type: 'text', message: e.message }); }
+    }
 
-      const lower = prompt.toLowerCase();
-
-      
+    // Case D: View Allowlist
+    if (/allowlist|payable|who can i pay|approved accounts/i.test(lower) && !/^add\s/i.test(lower)) {
       try {
-        const refund = prompt.trim().match(/^(?:mandate\s+)?refund escrow (m_[a-f0-9]{40})$/i);
-        if (refund) {
-          await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
-          const operation = await verifiedEscrow.refund(userAccount, refund[1].toLowerCase());
-          return json(200, { type: 'text', operation, message: operation.status === 'confirmed' && operation.action === 'escrow_refund'
-            ? `Escrow refunded **${operation.amount} testnet NEAR** to your agent wallet. [View receipt](${agentWallet.explorer(operation.txHashes.at(-1)!)})`
-            : `Escrow refund needs review: ${operation.error || operation.status}. Reconcile operation \`${operation.id}\` before retrying.` });
-        }
-        const command = parseWalletCommand(prompt);
-        if (command) {
-          if (command.action === 'deposit') {
-            const deposit = await agentWallet.prepareDeposit(userAccount, command.asset, command.amount);
-            return json(200, { type: 'wallet_deposit', deposit, message: `Deposit **${command.amount} ${command.asset}** into your Mandate agent wallet. Sign the transfer in your linked wallet to complete it.` });
-          }
-          await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
-          if (command.action === 'send' && !store.isAllowed(command.recipient!, userAccount)) {
-            if (/add\s+to\s+allowlist|approve/i.test(lower)) store.addToAllowlist(command.recipient!, 'User approved payee', userAccount);
-            else return json(200, { type: 'text', message: `Add \`${command.recipient}\` to your payable allowlist before sending funds.` });
-          }
-          const id = 'chat-' + createHash('sha256').update(userAccount + body + String(req.headers['x-mandate-signature'])).digest('hex');
-          const operation = await agentWallet.execute(userAccount, { ...command, id });
-          const receipts = operation.txHashes.map(hash => `[View transaction](${agentWallet.explorer(hash)})`).join(' · ');
-          return json(200, { type: 'text', operation,
-            message: operation.status === 'confirmed'
-              ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? 'The swapped funds remain in your agent wallet. This uses the testnet demonstration rate of 1 NEAR = 5 Test USDT.\n\n' : ''}${receipts}`
-              : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
-        }
-        if (/^(?:please\s+)?(?:mandate[, :]*)?\s*(?:stake|unstake|withdraw|deposit|swap|exchange|send|transfer|pay|fund)\b/i.test(lower)) {
-          return json(200, { type: 'text', message: 'Use a single command such as **Deposit 2 NEAR**, **Withdraw 5 USDT**, **Stake 1 NEAR**, **Unstake 3 USDT**, or **Send 2 USDT to alice.testnet**.' });
-        }
-      } catch (e: any) { return json(200, { type: 'text', message: e.message }); }
+        const list = await store.getAllowlist(userAccount);
+        return json(200, { type: 'allowlist_view', allowlist: list, message: 'Here are your approved payable accounts on NEAR (' + list.length + ' active):' });
+      } catch (error: any) { return json(503, { error: error.message }); }
+    }
 
-      // Case A.2: Faucet Queries & Directives
-      if (/\b(?:received|got|claimed)\s+[0-9.]+\s*(?:near|usdt)\b/i.test(lower)) {
-        return json(200, { type: 'text', message: 'Funds received in your linked wallet stay there until you deposit them into your agent wallet. Use **Deposit 2 NEAR** or **Deposit 5 USDT** to sign a transfer.' });
-      }
-      if (/\b(?:faucet|claim near|get testnet near|free near|near faucet)\b/i.test(lower)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'text',
-          message: `💧 **NEAR Testnet Faucet:**\n\n` +
-            `You can request free Testnet NEAR by visiting **[near-faucet.io](https://near-faucet.io/)** (or clicking the **Faucet** button in the top navigation bar).\n\n` +
-            `Once claimed into your connected wallet, deposit the funds into your **Mandate Treasury** (Agentic Wallet) to authorize autonomous agent execution, token swaps, and policy transfers.`
-        }));
-      }
-
-      if (/balance|wallet info|staking position/i.test(lower)) {
-        try {
-          const wallet = await agentWallet.snapshot(userAccount);
-          return json(200, { type: 'text', ...wallet,
-            message: `**Mandate agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${Number(wallet.userUsdt).toFixed(2)} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
-        } catch (e: any) { return json(503, { type: 'text', message: e.message }); }
-      }
-
-      // Case D: View Allowlist
-      if (/allowlist|payable|who can i pay|approved accounts/i.test(lower) && !/^add\s/i.test(lower)) {
-        const list = store.getAllowlist(userAccount);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'allowlist_view',
-          allowlist: list,
-          message: 'Here are your approved payable accounts on NEAR (' + list.length + ' active):'
-        }));
-      }
-
-      // Case E: Add to Allowlist without paying
-      const addMatch = lower.match(/add\s+([a-z0-9._-]+)\s+to\s+(?:my\s+)?allowlist/i);
-      if (addMatch) {
-        try { await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers); }
-        catch (e: any) { return json(400, { error: e.message, type: 'text', message: e.message }); }
+    // Case E: Add to Allowlist without paying
+    const addMatch = lower.match(/add\s+([a-z0-9._-]+)\s+to\s+(?:my\s+)?allowlist/i);
+    if (addMatch) {
+      try {
+        await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
         const newAcc = addMatch[1].trim().toLowerCase();
-        store.addToAllowlist(newAcc, 'Approved Payee', userAccount);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'text',
-          message: '✅ Added `' + newAcc + '` to your payable allowlist. You can now disburse payments to this account anytime.'
-        }));
+        if (!validAccount(newAcc)) return json(400, { error: 'Invalid recipient account ID.' });
+        await store.addToAllowlist(newAcc, 'Approved Payee', userAccount);
+        return json(200, { type: 'text', message: '✅ Added `' + newAcc + '` to your payable allowlist. You can now disburse payments to this account anytime.' });
+      } catch (error: any) { return json(400, { error: error.message, type: 'text', message: error.message }); }
+    }
+
+    // Case F: Security Notice for private keys
+    if (/key|secret|private|seed|wallet dump/i.test(lower)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        type: 'security_notice',
+        message: '🔒 Private keys are strictly quarantined in the backend and cannot be exported. Mandate executes transactions autonomously using its treasury and smart contract.'
+      }));
+    }
+
+    // Case G: Greeting, Capabilities, and Conversational Inquiries
+    const isGreeting = /^(hello|hi|hey|greetings|howdy|good\s+(morning|afternoon|evening|day)|yo\b|sup\b)/i.test(lower) ||
+                       ['hello', 'hi', 'hey', 'hello there', 'hi there', 'hey there'].includes(lower.trim());
+    const isHelpOrCapabilities = /^(what can you do|who are you|how does (?:this|mandate) work|help|what is mandate|what are your agents|explain agents)/i.test(lower);
+    const isSmallTalk = /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
+
+    if (isGreeting || isHelpOrCapabilities || isSmallTalk) {
+      const greetingMsg = "I am **Mandate**, your NEAR wallet and public-source research workspace.\n\n" +
+        "- 🧭 **Orchestrator:** Plans the directive and records spending permissions.\n" +
+        "- 🔍 **Researcher:** Retrieves public pages or free Ref Finance market feeds with source timestamps.\n" +
+        "- 📊 **Analyst:** Compares observed prices, calculates quantity estimates and prepares a recommendation.\n" +
+        "- 🛡️ **Verifier:** Checks source integrity, freshness, coverage and calculations; releases explicitly requested testnet escrow after verification.\n\n" +
+        "Research uses no paid model or API. You can authorize a testnet NEAR research fee, released through escrow after verification. Private quotations and unpublished fees stay marked as missing.\n\n" +
+        "Try **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**, or compare products using their HTTPS links.\n\n" +
+        "Use **Deposit 2 NEAR**, **Swap 2 NEAR for USDT**, **Stake 1 NEAR** or **Unstake 1 NEAR** for wallet actions.";
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        type: 'greeting',
+        message: greetingMsg
+      }));
+    }
+
+    if (prompt.trim().length <= 3) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        type: 'greeting',
+        message: 'Hello! How can I assist with your autonomous business mandates today? Type a mandate directive or try: *"Find three suppliers of 100 office chairs..."*'
+      }));
+    }
+
+    // Case H: Autonomous Business Mandate Execution
+    const streaming = payload.stream === true;
+    const writeEvent = (event: unknown) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
+    try {
+      if (researchPaymentRequest(prompt) || /\bescrow\b|past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt)) await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+      if (streaming) {
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'X-Accel-Buffering': 'no' });
+        res.flushHeaders();
       }
+      const result = await runAutonomousMandate({
+        id: payload.id,
+        store,
+        goal: prompt,
+        onProgress: streaming ? step => writeEvent({ type: 'progress', requestId: payload.id, step }) : undefined,
+        userAccount,
+        ledger: /audit|past purchase|past transaction/i.test(prompt) ? await agentWallet.receipts.list(userAccount) : [],
+        checkReceipt: async operation => {
+          const hash = operation.txHashes.at(-1)!;
+          const signerId = operation.attempt?.signerId || (operation.action === 'deposit' ? userAccount : agentWallet.identity(userAccount).accountId);
+          const receipt: any = await agentWallet.provider.viewTransactionStatusWithReceipts({ txHash: hash, accountId: signerId, waitUntil: 'FINAL' });
+          return { text: auditWalletReceipt(operation, receipt, agentWallet.identity(userAccount).accountId, signerId, { NEAR: agentWallet.nearPool, USDT: agentWallet.usdtPool }), url: agentWallet.explorer(hash) };
+        },
+        settleEscrow: async request => {
+          if (!(await store.isAllowed(request.recipient, userAccount))) throw new Error('Add the escrow recipient to your payable allowlist first.');
+          return verifiedEscrow.settle(userAccount, request);
+        },
+      });
 
-      // Case F: Security Notice for private keys
-      if (/key|secret|private|seed|wallet dump/i.test(lower)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'security_notice',
-          message: '🔒 Private keys are strictly quarantined in the backend and cannot be exported. Mandate executes transactions autonomously using its treasury and smart contract.'
-        }));
-      }
-
-      // Case G: Greeting, Capabilities, and Conversational Inquiries
-      const isGreeting = /^(hello|hi|hey|greetings|howdy|good\s+(morning|afternoon|evening|day)|yo\b|sup\b)/i.test(lower) ||
-                         ['hello', 'hi', 'hey', 'hello there', 'hi there', 'hey there'].includes(lower.trim());
-      const isHelpOrCapabilities = /^(what can you do|who are you|how does (?:this|mandate) work|help|what is mandate|what are your agents|explain agents)/i.test(lower);
-      const isSmallTalk = /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
-
-      if (isGreeting || isHelpOrCapabilities || isSmallTalk) {
-        const greetingMsg = "I am **Mandate**, your NEAR wallet and public-source research workspace.\n\n" +
-          "- 🧭 **Orchestrator:** Plans the directive and records spending permissions.\n" +
-          "- 🔍 **Researcher:** Retrieves public pages or free Ref Finance market feeds with source timestamps.\n" +
-          "- 📊 **Analyst:** Compares observed prices, calculates quantity estimates and prepares a recommendation.\n" +
-          "- 🛡️ **Verifier:** Checks source integrity, freshness, coverage and calculations; releases explicitly requested testnet escrow after verification.\n\n" +
-          "Research uses no paid model or API. You can authorize a testnet NEAR research fee, released through escrow after verification. Private quotations and unpublished fees stay marked as missing.\n\n" +
-          "Try **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**, or compare products using their HTTPS links.\n\n" +
-          "Use **Deposit 2 NEAR**, **Swap 2 NEAR for USDT**, **Stake 1 NEAR** or **Unstake 1 NEAR** for wallet actions.";
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'greeting',
-          message: greetingMsg
-        }));
-      }
-
-      if (prompt.trim().length <= 3) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({
-          type: 'greeting',
-          message: 'Hello! How can I assist with your autonomous business mandates today? Type a mandate directive or try: *"Find three suppliers of 100 office chairs..."*'
-        }));
-      }
-
-      // Case H: Autonomous Business Mandate Execution
-      try {
-        if (researchPaymentRequest(prompt) || /\bescrow\b|past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt)) await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
-        const payload = JSON.parse(body);
-        const result = await runAutonomousMandate({
-          id: payload.id,
-          store,
-          goal: prompt.length > 5 ? prompt : undefined,
-          userAccount,
-          ledger: /audit|past purchase|past transaction/i.test(prompt) ? await agentWallet.receipts.list(userAccount) : [],
-          checkReceipt: async operation => {
-            const hash = operation.txHashes.at(-1)!;
-            const signerId = operation.attempt?.signerId || (operation.action === 'deposit' ? userAccount : agentWallet.identity(userAccount).accountId);
-            const receipt: any = await agentWallet.provider.viewTransactionStatusWithReceipts({ txHash: hash, accountId: signerId, waitUntil: 'FINAL' });
-            return { text: auditWalletReceipt(operation, receipt, agentWallet.identity(userAccount).accountId, signerId, { NEAR: agentWallet.nearPool, USDT: agentWallet.usdtPool }), url: agentWallet.explorer(hash) };
-          },
-          settleEscrow: async request => {
-            if (!store.isAllowed(request.recipient, userAccount)) throw new Error('Add the escrow recipient to your payable allowlist first.');
-            return verifiedEscrow.settle(userAccount, request);
-          },
-        });
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          type: 'mandate_execution',
-          mandateResult: result,
-          message: result.mandate.status === 'completed' ? 'Research workflow completed.' : 'Research completed with evidence or settlement gaps.'
-        }));
-      } catch (err: any) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message || 'Execution error' }));
-      }
-    });
+      const data = {
+        type: 'mandate_execution',
+        requestId: result.mandate.id,
+        mandateResult: result,
+        message: result.mandate.status === 'completed' ? 'Research workflow completed.' : 'Research completed with evidence or settlement gaps.'
+      };
+      if (streaming) { writeEvent({ type: 'result', requestId: result.mandate.id, data }); res.end(); }
+      else json(200, data);
+    } catch (err: any) {
+      const data = { error: err.message || 'Execution error' };
+      if (res.headersSent) { writeEvent({ type: 'result', requestId: payload.id, data }); res.end(); }
+      else json(500, data);
+    }
     return;
   }
 

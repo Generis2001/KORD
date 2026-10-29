@@ -39,7 +39,11 @@ These optional overrides are blockchain account credentials, not paid API keys. 
 
 Every sent message and Mandate response is saved, including transaction receipts and completed mandate results. Past chats appear under **Conversations** in the sidebar. Select any chat to revisit it; refreshing or returning to the workspace restores the last conversation opened for that wallet. **New conversation** starts a separate thread while keeping earlier chats available.
 
+Replies are paired with the exact directive that started them, including when multiple mandates finish out of order or the history refreshes during execution. Live agent steps appear in a subtle expandable disclosure above the report. It stays folded by default; expand it to inspect the workflow, verification gaps, source receipts, budgets and settlement. The report and its evidence-linked comparisons remain visible below it.
+
 Chats are backed up in the browser before syncing, and interrupted saves retry when you return or reconnect. Each linked wallet maintains its own history. PostgreSQL writes finish before a save is acknowledged on serverless deployments; configure `DATABASE_URL` or `POSTGRES_URL` for cloud history across devices. Local development saves to the persistent SQLite database. Conversation titles are listed separately from full messages so older chats remain accessible without loading every transcript at startup.
+
+Approved payees are also stored per wallet in PostgreSQL when configured, or in persistent SQLite locally. Additions and removals finish saving before Mandate reports success. The initial agent payees are seeded once for each wallet; a removed payee stays removed after refreshing, reconnecting or restarting the server. Database failures block new spending checks instead of trusting a temporary local approval list.
 
 ## Agent wallet and single-command mandates
 
