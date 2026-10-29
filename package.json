@@ -9,6 +9,9 @@
     "demo": "tsx src/demo.ts",
     "testnet:check": "tsx scripts/testnet-check.ts",
     "agents:check": "tsx scripts/verify-agents.ts",
+    "protocols:check": "tsx scripts/testnet-protocol-check.ts",
+    "staking:setup": "tsx scripts/testnet-staking-setup.ts",
+    "dex:setup": "tsx scripts/testnet-dex-setup.ts",
     "gen-keys": "tsx scripts/gen-keys.ts",
     "escrow:setup": "tsx scripts/escrow-setup.ts",
     "typecheck": "tsc --noEmit"

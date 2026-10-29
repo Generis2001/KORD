@@ -1244,8 +1244,16 @@ if (swapInputNear) {
   });
 }
 
+let swapQuoteVersion = 0;
+let swapQuoteReady = false;
+let swapInFlight = false;
 async function updateSwapQuote() {
   if (!swapInputNear) return;
+  const version = ++swapQuoteVersion;
+  swapQuoteReady = false;
+  if (btnExecuteSwap) btnExecuteSwap.disabled = true;
+  if (swapOutputUsdt) swapOutputUsdt.value = '';
+  if (swapMinOutput) swapMinOutput.value = '';
   const amt = parseFloat(swapInputNear.value || '0');
   if (isNaN(amt) || amt <= 0) {
     if (swapOutputUsdt) swapOutputUsdt.value = '0.00';
@@ -1256,12 +1264,19 @@ async function updateSwapQuote() {
     const dest = swapDestinationWallet ? encodeURIComponent(swapDestinationWallet.value.trim()) : '';
     const res = await mandateWallet.fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
     const data = await res.json();
-    if (data && !data.error) {
-      if (swapOutputUsdt) swapOutputUsdt.value = Number(data.outputUsdt).toFixed(2);
-      if (swapMinOutput) swapMinOutput.value = Number(data.minOutputUsdt).toFixed(2);
+    if (version !== swapQuoteVersion) return;
+    if (!res.ok || data.error) throw new Error(data.error || 'Live quote unavailable.');
+    if (data) {
+      if (swapOutputUsdt) swapOutputUsdt.value = Number(data.outputUsdt).toFixed(6);
+      if (swapMinOutput) swapMinOutput.value = Number(data.minOutputUsdt).toFixed(6);
       if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = Number(data.poolLiquidityUsdt).toFixed(2) + ' USDT';
+      swapQuoteReady = true;
+      if (btnExecuteSwap) btnExecuteSwap.disabled = swapInFlight;
     }
-  } catch {}
+  } catch (error) {
+    if (version !== swapQuoteVersion) return;
+    if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = error.message;
+  }
 }
 
 async function loadSwapHistory() {
@@ -1282,8 +1297,8 @@ async function loadSwapHistory() {
         return '<tr>' +
           '<td>' + dateStr + '</td>' +
           '<td><strong>' + Number(s.inputNear).toFixed(2) + ' NEAR</strong></td>' +
-          '<td style="color:var(--success); font-weight:600;">' + Number(s.outputAmount).toFixed(2) + ' USDT</td>' +
-          '<td>1 NEAR = ' + s.exchangeRate + ' USDT</td>' +
+          '<td style="color:var(--success); font-weight:600;">' + (s.outputAmount == null ? '—' : Number(s.outputAmount).toFixed(2) + ' USDT') + '</td>' +
+          '<td>' + (s.exchangeRate == null ? '—' : '1 NEAR = ' + Number(s.exchangeRate).toFixed(6) + ' USDT') + '</td>' +
           '<td style="font-family:var(--font-mono); font-size:11px;">' + escapeHtml(s.destinationWallet) + '</td>' +
           '<td>' + statusBadge + '</td>' +
           '<td>' + txLink + '</td>' +
@@ -1318,6 +1333,7 @@ function setStepState(stepEl, state) {
 
 if (btnExecuteSwap) {
   btnExecuteSwap.addEventListener('click', async () => {
+    if (!swapQuoteReady || swapInFlight) { showToast('Wait for a current DEX quote.'); return; }
     if (!swapAuthCheck || !swapAuthCheck.checked) {
       alert('Please check the authorization box to authorize the agent to execute this swap.');
       return;
@@ -1339,23 +1355,15 @@ if (btnExecuteSwap) {
 
     // UI Progress Stepper
     resetStepper();
+    swapInFlight = true;
     btnExecuteSwap.disabled = true;
     btnExecuteSwap.textContent = 'Processing Swap...';
 
     setStepState(swapStep1, 'active');
 
     try {
-      // Step 1: Authorization & Validation
-      await new Promise(r => setTimeout(r, 600));
-      setStepState(swapStep1, 'completed');
-      setStepState(swapStep2, 'active');
-
-      // Step 2: Storage registration check
-      await new Promise(r => setTimeout(r, 600));
-      setStepState(swapStep2, 'completed');
-      setStepState(swapStep3, 'active');
-
-      // Step 3: Executing on NEAR Testnet
+      // Backend authorization, storage registration and settlement are confirmed
+      // together by the final response; do not mark steps complete ahead of it.
       const res = await mandateWallet.fetch('/api/swap/execute', {
         method: 'POST',
         headers: getApiHeaders(),
@@ -1371,6 +1379,8 @@ if (btnExecuteSwap) {
       const data = await res.json();
 
       if (res.ok && data.status === 'confirmed') {
+        setStepState(swapStep1, 'completed');
+        setStepState(swapStep2, 'completed');
         setStepState(swapStep3, 'completed');
         setStepState(swapStep4, 'completed');
 
@@ -1401,8 +1411,9 @@ if (btnExecuteSwap) {
       swapResultBox.style.color = 'var(--danger)';
       swapResultBox.innerHTML = '<strong>❌ Network Error:</strong> ' + escapeHtml(err.message);
     } finally {
-      btnExecuteSwap.disabled = false;
+      swapInFlight = false;
       btnExecuteSwap.textContent = 'Authorize & Execute Swap';
+      await updateSwapQuote();
     }
   });
 }

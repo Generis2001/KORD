@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentSwapService } from '../src/swap.js';
 
 describe('testnet demonstration quotes', () => {
+  beforeEach(() => vi.stubEnv('SWAP_MODE', 'legacy_demo'));
+  afterEach(() => vi.unstubAllEnvs());
   it.each([0, -5, Infinity, NaN])('rejects invalid amount %s before RPC', async amount => {
     await expect(new AgentSwapService().getQuote(amount)).rejects.toThrow('greater than zero');
   });

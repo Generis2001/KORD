@@ -4,7 +4,7 @@
 
 > **Mandate** is an autonomous agent that executes real, automated blockchain transactions on the NEAR Testnet. Users can instruct the agent in natural language to perform token swaps, disburse native NEAR, enforce security policies, and manage treasury funds with verifiable on-chain cryptographic receipts.
 
-Live Production URL: **[https://mandateme.vercel.app](https://mandateme.vercel.app)**
+Hosted testnet demo: **[https://mandateme.vercel.app](https://mandateme.vercel.app)**
 
 ---
 
@@ -53,7 +53,7 @@ Each linked NEAR account has its own Mandate-controlled **implicit NEAR account*
 
 - `Deposit 2 NEAR` or `Deposit 5 USDT`: prepare a transfer for the linked wallet to sign. Deposit NEAR first to activate the agent account and pay network gas. USDT storage registration is included when needed.
 - `Withdraw 2 NEAR` or `Withdraw 5 USDT`: send agent funds back to the linked owner.
-- `Swap 2 NEAR for USDT` or `Swap 5 USDT for NEAR`: transfer the input to the demonstration treasury and the output back to the agent wallet. The testnet rate remains **1 NEAR = 5 Test USDT**; it is not a market price or DEX quote.
+- `Swap 0.1 NEAR for USDT` or `Swap 0.1 USDT for NEAR`: trade on Ref Finance testnet, wrapping/unwrapping native NEAR as needed. Quotes come from current pool reserves and include the pool fee, with a default 2% output tolerance. Funds return to the agent wallet. The Swap panel lets you set an explicit minimum output. Prices change with trades and available testnet liquidity.
 - `Send 2 USDT to alice.testnet` / `Pay 1 NEAR to alice.testnet`: pay from the agent wallet after checking the recipient allowlist. Research uses no paid API. Optional, explicitly requested research fees use the user's agent account through verified testnet escrow.
 - `Stake 1 NEAR` / `Stake 5 USDT`: deposit to the configured staking provider.
 - `Unstake 1 NEAR` / `Unstake 5 USDT`: start the provider's unbonding process. While an authorized MyNearWallet workspace remains open, Mandate checks every 30 seconds and collects available funds. When the workspace is closed, collection resumes on reopening; this is not a background scheduling service. `Claim 1 NEAR` or the **Withdraw unstaked funds** control also collects matured funds. Injected wallets may require a fresh signature for collection.
@@ -66,14 +66,16 @@ Linking an address allows viewing and funding; it does not authorize spending. M
 
 ### Staking provider setup
 
-There is no default staking investment. Configure and verify contracts before enabling staking:
+Testnet defaults are an active NEAR validator pool and Mandate's deployed Test USDT vault. The vault holds transferred tokens, applies a 60-second unstaking cooldown, and distributes rewards only when actual tokens are deposited with `{"action":"fund_rewards"}`. No fixed yield is promised. USDT vault staking is token custody with funded rewards; it does not validate the NEAR network.
 
 ```env
 # Keep this master key stable and backed up. Changing it changes every derived agent address.
 # If omitted, the existing NEAR_PRIVATE_KEY is the derivation seed and must remain stable.
 AGENT_WALLET_MASTER_KEY=<stable-random-server-secret>
-NEAR_STAKING_POOL_ID=<validator-pool-on-the-configured-network>
-USDT_STAKING_CONTRACT_ID=<compatible-token-staking-contract>
+NEAR_STAKING_POOL_ID=kiln.pool.f863973.m0
+USDT_STAKING_CONTRACT_ID=usdt.mandate-live-20261029.testnet
+TESTNET_DEX_CONTRACT_ID=ref-finance-101.testnet
+TESTNET_DEX_POOL_ID=57
 ```
 
 The NEAR adapter supports the standard staking-pool interface: `deposit_and_stake` with attached NEAR, `unstake({amount})`, `withdraw({amount})`, and `get_account_staked_balance`, `get_account_unstaked_balance`, `is_account_unstaked_balance_available` with `{account_id}`. Amounts are decimal strings in yoctoNEAR. Typical validator pools impose a multi-epoch cooldown.
@@ -84,13 +86,15 @@ USDT has no native validator staking mechanism. Its adapter requires a compatibl
 - Expose `get_position({account_id}) -> {staked, unstaked, withdrawable}`, with all values as strings in 6-decimal atomic units, including accrued rewards if applicable.
 - Expose `unstake({amount})` and `withdraw({amount})`, with 1 yoctoNEAR attached. Withdrawal must transfer actual USDT back to the caller, and complete its transfer promise before returning.
 
-A different protocol ABI requires an adapter; entering an arbitrary contract address does not make it compatible. Missing providers are shown as unavailable. No fixed APY or synthetic staking rewards are advertised.
+A different protocol ABI requires an adapter; entering an arbitrary contract address does not make it compatible. Mainnet has no staking defaults. To deploy your own testnet vault, build `staking-contract` for `wasm32-unknown-unknown` and run `npm run staking:setup`; `-- --redeploy` updates that configured vault without reinitializing its positions.
+
+Ref Finance pool 57 pairs `wrap.testnet` with `usdt.fakes.testnet`. It was funded with 2 faucet NEAR and 10 Test USDT, with a 0.3% pool fee. This is limited testnet liquidity, so use small demo amounts and inspect the quote. No paid service is needed. NEAR Intents does not provide a testnet deployment, so this adapter executes same-chain testnet swaps. The old treasury swap remains available only with the explicit `SWAP_MODE=legacy_demo` compatibility setting.
 
 ### Persistence and interrupted transactions
 
 `wallet_operations` stores confirmed deposit and transaction receipts with idempotency IDs. PostgreSQL is authoritative when `DATABASE_URL`/`POSTGRES_URL` is configured, with advisory locks protecting the user account and shared swap treasury across serverless instances. SQLite supplies persistent receipts and account locks locally. Database failures prevent new signing rather than silently substituting another ledger.
 
-Swaps have two on-chain legs and are not atomic. If a network response is ambiguous or payout fails after funding, the operation is marked **needs_review**, with available receipts retained. Further spending pauses to avoid duplicate payouts. The exact signed transaction hash is saved before broadcast. Use **Check on-chain status** to query that saved hash, then **Resume swap payout** for a conclusively funded swap; the input is never resent. Unknown chain status keeps spending paused. Reconcile before refunding it; never delete an operation or retry a payout solely because an HTTP request timed out. Back up the wallet derivation secret and database before changes to deployment keys. Historical quota fields in older databases are not used as wallet funds.
+DEX swaps save their quote, minimum output, wrapping step and actual received output. The trade executes through Ref Finance's token callback, while native NEAR wrapping/unwrapping takes separate transactions. Legacy treasury swaps also have separate funding and payout transactions. If a network response is ambiguous, the operation is marked **needs_review**, with available receipts retained. Further spending pauses to avoid duplicate payments. The exact signed transaction hash is saved before broadcast. Use **Check on-chain status** to query that saved hash, then **Resume swap payout** for a conclusively funded swap. A confirmed DEX trade is never repeated: a pending reverse swap resumes only native NEAR unwrapping. Unknown chain status keeps spending paused. Definite balance rejections can be reconciled as failed. Never delete an operation or retry solely because an HTTP request timed out. Back up the wallet derivation secret and database before changes to deployment keys. Historical quota fields in older databases are not used as wallet funds.
 
 ---
 
@@ -118,7 +122,7 @@ Swaps have two on-chain legs and are not atomic. If a network response is ambigu
                             │ (Approved)             │ (Denied)
                             ▼                        ▼
          ┌──────────────────────────────┐    ┌───────────────────────────┐
-         │     Treasury Key Signing     │    │   Security Block Notice   │
+         │     Agent Wallet Signing     │    │   Security Block Notice   │
          │       (near-api-js)          │    │ (Logged to Audit Ledger)  │
          └──────────────┬───────────────┘    └───────────────────────────┘
                         │
@@ -128,6 +132,7 @@ Swaps have two on-chain legs and are not atomic. If a network response is ambigu
          │ • Native Transfers           │
          │ • NEP-141 ft_transfer        │
          │ • NEP-145 storage_deposit    │
+         │ • Ref swaps & staking calls │
          └──────────────┬───────────────┘
                         │
                         ▼
@@ -148,7 +153,7 @@ Here is a recommended 60-second walkthrough to demonstrate Mandate on video:
    - Point out the linked and agent wallet cards at the bottom-left showing `generis.testnet` with separate live balances. Deposit NEAR into the agent wallet before execution.
 
 2. **Automated Token Swap (0:10 - 0:25):**
-   - Click the quick action: **⚡ Swap 2 NEAR for Test USDT** (or type *"Swap 2 NEAR for Test USDT"* in chat).
+   - Type *"Swap 0.1 NEAR for Test USDT"* in chat.
    - Show Mandate calculating the quote, registering token storage, and confirming the swap.
    - Click the **NearBlocks receipt link** to show the live on-chain transaction on testnet.
 
@@ -201,13 +206,35 @@ npm run typecheck
 npm run agents:check
 
 # With valid testnet account keys: verify a 0.001 NEAR escrow research fee
-# Allocates 0.03 faucet testnet NEAR to the owner's agent wallet only if needed
+# Allocates 0.2 testnet NEAR from the configured faucet-funded owner only if needed
 npm run agents:check -- --escrow-test
+
+# Verify deployed testnet providers and a live DEX quote, without transactions
+npm run protocols:check
+
+# With an isolated faucet-funded account: stake, unstake and swap real testnet assets
+# Funds its agent with 1 testnet NEAR only if needed; publicly mints Test USDT
+# NEAR withdrawal remains subject to validator epochs; Test USDT waits 60 seconds
+npm run protocols:check -- --execute --staking --swap
 
 # Start local server
 npx tsx src/server.ts
 # Server runs at http://localhost:3000
 ```
+
+### Confirmed live testnet checks
+
+Checks on October 29, 2026 used an isolated faucet-funded account. They exercised the same command parser and agent wallet adapters used by the app.
+
+| Command / check | Observed result | Final receipt |
+| --- | --- | --- |
+| `Research stablecoins from 2 sources; research fee 0.001 NEAR` | Public sources discovered without supplied links; verification passed; researcher balance increased by exactly 0.001 NEAR | [Research payout](https://testnet.nearblocks.io/txns/Br7W2mERxTtSWETDJJZpgjTHuaHMPsUAhtJan1mAuZjQ) |
+| `Stake 0.1 NEAR`, then `Unstake 0.1 NEAR` | Validator stake and unstake confirmed; withdrawal remains subject to epoch cooldown | [Stake](https://testnet.nearblocks.io/txns/8Q7rokBCRbTPGuVM95C9Z656vMDz4JGQpEHkZsk46cot), [unstake](https://testnet.nearblocks.io/txns/28egx2UxSU6t8uh9oZdeLNi8FmhFinD1wS6FLNc4PERQ) |
+| `Stake 5 USDT`, `Unstake 5 USDT`, then `Claim 5 USDT` | Full 5 Test USDT principal returned after the vault cooldown | [Stake](https://testnet.nearblocks.io/txns/618BnrTHubj9MmjhRqUddKLNwR7DZZEFEkEE3X85jXK3), [unstake](https://testnet.nearblocks.io/txns/Dy39yZdE5ak2dStqQMyttceSLLhT1xsboR4ZuR5Eh5sZ), [withdrawal](https://testnet.nearblocks.io/txns/J9SHqX7yVjtUGdp3Ndbr6WEPbSN5UM7HAvnEfdCT732z) |
+| `Swap 0.1 NEAR for USDT` | Ref Finance delivered 0.474829 Test USDT; receipt output matched the agent balance increment | [DEX swap](https://testnet.nearblocks.io/txns/F5yzBy3tBd5MsM561nJAvNFCPQEABhwQN65wFRB7eZEf) |
+| `Swap 0.1 USDT for NEAR` | Ref Finance delivered 0.021753018819680804033633 wrapped NEAR, then Mandate withdrew it as native NEAR | [DEX swap](https://testnet.nearblocks.io/txns/9McpDHJZjNL9qdk7GVwTv83egnSEwrhj6WH6bjjuG9C3), [native withdrawal](https://testnet.nearblocks.io/txns/4AtJ5LKoQRBChdEJZLCsbwFzeJ1CmXt8R6oaNjZF5b8i) |
+
+The deployed vault source is in `staking-contract/`: [deployment receipt](https://testnet.nearblocks.io/txns/DFxCh5QBfs42fEbX8447Z2f9GGoVgEFhGQFFFwFjL5m8). Ref Finance liquidity was funded on-chain: [liquidity receipt](https://testnet.nearblocks.io/txns/Az2oBebT2zPj9kPzQPhG1zXhNd5e4SEcDLCEARTdyPBz). Generative AI is optional under the provided build options; this prototype uses local deterministic specialists with free public research and real testnet settlement.
 
 ---
 

@@ -12,6 +12,7 @@ let db: Store, wallet: AgentWallet, near: Map<string, bigint>, tokens: Map<strin
 let factory: ReturnType<typeof vi.fn>;
 const result = (value = '') => ({ transaction: { hash: `tx-${++serial}` }, status: { SuccessValue: value }, receipts_outcome: [] });
 beforeEach(() => {
+  vi.stubEnv('SWAP_MODE', 'legacy_demo');
   vi.stubEnv('NEAR_STAKING_POOL_ID', 'validator.pool.testnet');
   vi.stubEnv('USDT_STAKING_CONTRACT_ID', 'yield.testnet');
   vi.stubEnv('AGENT_WALLET_MASTER_KEY', 'test-wallet-master-key');
@@ -197,6 +198,19 @@ describe('isolated on-chain agent wallets', () => {
     mature = true;
     expect((await execute('claim', asset, '1')).status).toBe('confirmed');
     expect(Number((await wallet.position(owner, asset)).unstaked)).toBe(0);
+  });
+  it('redeems all NEAR shares when staking left a few owned yoctoNEAR as rounding dust', async () => {
+    staked.NEAR = units('1', 24) - 3n; unstaked.NEAR = 3n;
+    vi.mocked(wallet.call).mockResolvedValueOnce(result() as any);
+    expect((await execute('unstake', 'NEAR', '1')).status).toBe('confirmed');
+    expect(wallet.call).toHaveBeenCalledWith(expect.anything(), 'validator.pool.testnet', 'unstake_all', {}, 0n, '100', expect.anything());
+  });
+  it('reconciles a saved definite balance rejection without treating it as a pending transfer', async () => {
+    const id = 'rejected-balance-operation', signerId = wallet.identity(owner).accountId;
+    await wallet.receipts.save({ id, userAccount: owner, action: 'send', asset: 'NEAR', amount: '1', status: 'needs_review', txHashes: [], createdAt: new Date().toISOString(), attempt: { txHash: 'rejected-hash', signerId, kind: 'execution' }, error: `Not enough balance for ${signerId} (balance: 30000, cost: 60000)` });
+    const status = vi.spyOn(wallet.provider, 'viewTransactionStatusWithReceipts');
+    expect((await wallet.reconcile(owner, id)).status).toBe('failed');
+    expect(status).not.toHaveBeenCalled();
   });
   it('refuses a refunded USDT stake rather than reporting success', async () => {
     vi.mocked(wallet.call).mockResolvedValueOnce(result(Buffer.from('"0"').toString('base64')) as any);

@@ -17,6 +17,8 @@ export interface WalletOperation {
   contractId?: string;
   mandateId?: string;
   taskId?: string;
+  dex?: import('./dex.js').DexQuote & { actualOutput?: string; wrappedInput?: boolean; swapConfirmed?: boolean };
+  broadcastRejected?: boolean;
 }
 
 /** Durable receipts and locks; PostgreSQL is authoritative on serverless deployments. */

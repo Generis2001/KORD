@@ -6,7 +6,7 @@ import path from 'path';
 import { Store } from './db.js';
 import { loadNearConfig } from './near.js';
 import { runAutonomousMandate } from './runner.js';
-import { AgentWallet, validAccount } from './agent-wallet.js';
+import { AgentWallet, validAccount, decimal } from './agent-wallet.js';
 import { auditWalletReceipt } from './receipt-audit.js';
 import { VerifiedEscrow } from './escrow.js';
 import { WalletStore } from './wallet-store.js';
@@ -245,7 +245,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   if (url.pathname === '/api/swap/history' && req.method === 'GET') {
     try {
       const swaps = (await agentWallet.receipts.list(userAccount)).filter(op => op.action === 'swap' && op.asset === 'NEAR').map(op => ({
-        id: op.id, inputNear: op.amount, outputAmount: Number(op.amount) * 5, exchangeRate: 5, destinationWallet: op.recipient,
+        id: op.id, inputNear: op.amount, outputAmount: op.dex ? (op.dex.actualOutput ? Number(op.dex.actualOutput) / 1e6 : null) : Number(op.amount) * 5, exchangeRate: op.dex ? (op.dex.actualOutput ? Number(op.dex.actualOutput) / 1e6 / Number(op.amount) : null) : 5, destinationWallet: op.recipient,
         status: op.status === 'confirmed' ? 'payout_confirmed' : op.status, payoutTxHash: op.status === 'confirmed' ? op.txHashes.at(-1) : null, createdAt: op.createdAt }));
       const history = [...swaps, ...store.listSwaps(userAccount)];
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -303,8 +303,10 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         const receipts = operation.txHashes.map(hash => `[View transaction](${agentWallet.explorer(hash)})`).join(' · ');
         return json(200, { type: 'text', operation,
           message: operation.status === 'confirmed'
-            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? 'The swapped funds remain in your agent wallet. This uses the testnet demonstration rate of 1 NEAR = 5 Test USDT.\n\n' : ''}${receipts}`
-            : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
+            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? (operation.dex ? `Received **${decimal(BigInt(operation.dex.actualOutput!), operation.dex.outputDecimals)} ${command.asset === 'NEAR' ? 'Test USDT' : 'NEAR'}** through the testnet DEX. The funds remain in your agent wallet.\n\n` : 'The swapped funds remain in your agent wallet. This historical swap uses the demonstration treasury.\n\n') : ''}${receipts}`
+            : operation.status === 'failed'
+              ? `**Transaction failed:** ${operation.error || 'The transaction was rejected.'}\n\n${receipts}\n\nOperation: \`${operation.id}\`.`
+              : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
       }
       if (/^(?:please\s+)?(?:mandate[, :]*)?\s*(?:stake|unstake|withdraw|deposit|swap|exchange|send|transfer|pay|fund)\b/i.test(lower)) {
         return json(200, { type: 'text', message: 'Use a single command such as **Deposit 2 NEAR**, **Withdraw 5 USDT**, **Stake 1 NEAR**, **Unstake 3 USDT**, or **Send 2 USDT to alice.testnet**.' });

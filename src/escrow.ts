@@ -85,7 +85,7 @@ export class VerifiedEscrow {
         try {
           const receipt = await this.wallet.call(this.wallet.account(user), contractId, 'create_mandate', { mandate_id: mandateId, verifier, per_agent_cap: amount.toString(), allowed_agents: [request.recipient] }, amount, '60', funded);
           funded.txHashes.push(confirmedHash(receipt)); funded.status = 'confirmed';
-        } catch (error: any) { funded.status = 'needs_review'; funded.error = error.message; }
+        } catch (error: any) { funded.status = funded.broadcastRejected ? 'failed' : 'needs_review'; funded.error = error.message; }
         await this.wallet.receipts.save(funded);
       }
       if (funded.status !== 'confirmed') return funded;
@@ -100,7 +100,7 @@ export class VerifiedEscrow {
         const hash = confirmedHash(receipt), events = parseEscrowEvents(receipt);
         if (!events.confirmed || events.failed) throw new Error('Escrow did not confirm its payout. Reconcile before retrying.');
         released.txHashes.push(hash); released.status = 'confirmed';
-      } catch (error: any) { released.status = 'needs_review'; released.error = error.message; }
+      } catch (error: any) { released.status = released.broadcastRejected ? 'failed' : 'needs_review'; released.error = error.message; }
       await this.wallet.receipts.save(released);
       return released;
     });

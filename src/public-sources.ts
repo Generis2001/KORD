@@ -26,7 +26,7 @@ export interface PublicPage { url: string; body: string; contentType: string; re
 export type SourceLoader = (url: string) => Promise<PublicPage>;
 
 /** Resolves and checks the address used by the HTTPS connection, including every redirect. */
-export async function loadPublicPage(value: string, redirects = 0): Promise<PublicPage> {
+export async function loadPublicPage(value: string, redirects = 0, timeoutMs = 6500): Promise<PublicPage> {
   const url = publicUrl(value);
   if (redirects > 3) throw new Error('Source redirected too many times.');
   const response = await new Promise<{ status: number; headers: IncomingHttpHeaders; bytes: Buffer }>((resolve, reject) => {
@@ -50,11 +50,11 @@ export async function loadPublicPage(value: string, redirects = 0): Promise<Publ
       incoming.on('error', reject);
       incoming.on('end', () => resolve({ status: incoming.statusCode || 0, headers: incoming.headers, bytes: Buffer.concat(chunks) }));
     });
-    const timeout = setTimeout(() => request.destroy(new Error('Source timed out.')), 6500);
+    const timeout = setTimeout(() => request.destroy(new Error('Source timed out.')), timeoutMs);
     request.on('close', () => clearTimeout(timeout));
     request.on('error', reject);
   });
-  if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) return loadPublicPage(new URL(response.headers.location, url).href, redirects + 1);
+  if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) return loadPublicPage(new URL(response.headers.location, url).href, redirects + 1, timeoutMs);
   if (response.status !== 200) throw new Error('Source returned HTTP ' + response.status + '.');
   const contentType = String(response.headers['content-type'] || 'text/plain');
   if (!/text\/|json|xml/i.test(contentType)) throw new Error('Source is not a readable page or data feed.');

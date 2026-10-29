@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { JsonRpcProvider } from "near-api-js";
 import { loadNearConfig } from "./near.js";
+import { TestnetDex } from './dex.js';
+import { decimal } from './amounts.js';
 
 export const TEST_USDT_TOKEN_ID = process.env.TEST_USDT_TOKEN_ID || "usdt.fakes.testnet";
 export const TEST_USDT_NAME = "Mandate Test USDT";
@@ -19,7 +21,10 @@ export interface SwapQuote {
   outputUsdt: number;
   minOutputUsdt: number;
   exchangeRate: number;
-  rateType: "demonstration_rate";
+  rateType: "demonstration_rate" | "testnet_dex";
+  poolId?: number;
+  dexContract?: string;
+  feeBps?: number;
   tokenContract: string;
   tokenSymbol: string;
   poolLiquidityUsdt: number;
@@ -75,6 +80,12 @@ export class AgentSwapService {
     if (!Number.isFinite(inputNear) || inputNear <= 0) throw new Error('Input NEAR amount must be greater than zero.');
     if (inputNear > MAX_SWAP_PER_TRANSACTION_NEAR) throw new Error(`Input NEAR amount exceeds the maximum single-swap limit of ${MAX_SWAP_PER_TRANSACTION_NEAR} NEAR.`);
     if (inputNear < MIN_SWAP_PER_TRANSACTION_NEAR) throw new Error(`Input NEAR amount must be at least ${MIN_SWAP_PER_TRANSACTION_NEAR} NEAR.`);
+    if (process.env.SWAP_MODE !== 'legacy_demo') {
+      const quote = await new TestnetDex(this.cfg, TEST_USDT_TOKEN_ID).quote('NEAR', inputNear);
+      const outputUsdt = Number(decimal(BigInt(quote.expectedOutput), 6));
+      return { inputNear, outputUsdt, minOutputUsdt: Number(decimal(BigInt(quote.minOutput), 6)), exchangeRate: outputUsdt / inputNear, rateType: 'testnet_dex', poolId: quote.poolId, dexContract: quote.contractId, feeBps: quote.feeBps,
+        tokenContract: TEST_USDT_TOKEN_ID, tokenSymbol: TEST_USDT_SYMBOL, poolLiquidityUsdt: Number(decimal(BigInt(quote.reserveOut), 6)), storageDepositRequired: destinationWallet ? !(await this.isAccountRegistered(destinationWallet)) : false, disclaimer: TEST_USDT_DISCLAIMER };
+    }
     const outputUsdt = Number((inputNear * DEMO_EXCHANGE_RATE).toFixed(6));
     return { inputNear, outputUsdt, minOutputUsdt: Number((outputUsdt * 0.98).toFixed(6)), exchangeRate: DEMO_EXCHANGE_RATE,
       rateType: 'demonstration_rate', tokenContract: TEST_USDT_TOKEN_ID, tokenSymbol: TEST_USDT_SYMBOL,

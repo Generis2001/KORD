@@ -64,7 +64,7 @@
         <div class="sidebar-quick-actions">
           <div class="nav-section-title">Shortcuts</div>
           <div class="chat-history-list">
-            <button class="history-item" id="quickActionSwap" data-action="Swap 2 NEAR for Test USDT">
+            <button class="history-item" id="quickActionSwap" data-action="Swap 0.1 NEAR for Test USDT">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>
               <span>Swap NEAR for Test USDT</span>
             </button>
@@ -166,7 +166,7 @@
           <div class="welcome-suggestions">
             <div class="suggestions-label">A place to start <span aria-hidden="true">↙</span></div>
             <div class="suggestions-grid">
-              <button class="suggestion-card" data-prompt="Swap 2 NEAR for Test USDT"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg></span><span class="card-text"><span class="card-title">Swap tokens</span><span class="card-desc">NEAR → Test USDT</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
+              <button class="suggestion-card" data-prompt="Swap 0.1 NEAR for Test USDT"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg></span><span class="card-text"><span class="card-title">Swap tokens</span><span class="card-desc">NEAR → Test USDT</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
               <button class="suggestion-card" data-prompt="Pay 7 NEAR to zeal.testnet (add to allowlist)"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m5 19 14-14M5 5h14v14"/></svg></span><span class="card-text"><span class="card-title">Make a payment</span><span class="card-desc">7 NEAR to zeal.testnet</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
               <button class="suggestion-card" data-prompt="Deposit 10 NEAR"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M16 13v4m-2-2h4"/></svg></span><span class="card-text"><span class="card-title">Agent wallet</span><span class="card-desc">Deposit NEAR or USDT</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
               <button class="suggestion-card" data-prompt="Show my payable allowlist"><span class="card-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7z"/><path d="m8 12 3 3 5-6"/></svg></span><span class="card-text"><span class="card-title">Manage payees</span><span class="card-desc">Your approved recipients</span></span><span class="card-arrow" aria-hidden="true">↗</span></button>
@@ -443,13 +443,13 @@
             <div>
               <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Swap from agent wallet</label>
               <div style="display:flex; gap:8px; margin-top:6px;">
-                <input type="number" id="swapInputNear" placeholder="Amount in NEAR" class="form-control" step="0.1" min="0.1" max="20" value="1.0" style="font-size:15px; font-weight:600; font-family:var(--font-mono);">
+                <input type="number" id="swapInputNear" placeholder="Amount in NEAR" class="form-control" step="0.1" min="0.1" max="20" value="0.1" style="font-size:15px; font-weight:600; font-family:var(--font-mono);">
                 <div style="display:flex; align-items:center; gap:6px; background:var(--bg-inset); padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:var(--text-primary); font-size:13px;">
     <img src="assets/near.png" alt="NEAR" style="width:16px; height:16px; border-radius:3px;"> NEAR
   </div>
               </div>
               <div style="display:flex; gap:6px; margin-top:8px;">
-                <button class="btn-subtle btn-quick-swap" data-amt="0.5">+0.5</button>
+                <button class="btn-subtle btn-quick-swap" data-amt="0.1">0.1</button>
                 <button class="btn-subtle btn-quick-swap" data-amt="1.0">1.0</button>
                 <button class="btn-subtle btn-quick-swap" data-amt="2.0">2.0</button>
                 <button class="btn-subtle btn-quick-swap" data-amt="5.0">5.0</button>
@@ -458,15 +458,15 @@
 
             <!-- Rate Pill -->
             <div style="display:flex; justify-content:space-between; align-items:center; background:var(--success-soft); border:1px solid var(--success-border); border-radius:8px; padding:8px 12px; font-size:12px; color:var(--success);">
-              <span>Demonstration Rate: <strong>1 NEAR = 5.00 Test USDT</strong></span>
-              <span style="font-size:11px; opacity:0.8;">Fixed Demo Price</span>
+              <span>Live testnet DEX quote · <strong>price changes with pool reserves</strong></span>
+              <span style="font-size:11px; opacity:0.8;">Ref Finance</span>
             </div>
 
             <!-- Estimated Output -->
             <div>
               <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Agent wallet receives</label>
               <div style="display:flex; gap:8px; margin-top:6px;">
-                <input type="text" id="swapOutputUsdt" class="form-control" readonly value="5.00" style="font-size:15px; font-weight:700; color:var(--success); font-family:var(--font-mono); background:var(--bg-inset);">
+                <input type="text" id="swapOutputUsdt" class="form-control" readonly placeholder="Live DEX quote" style="font-size:15px; font-weight:700; color:var(--success); font-family:var(--font-mono); background:var(--bg-inset);">
                 <div style="display:flex; align-items:center; gap:6px; background:var(--bg-inset); padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:var(--success); font-size:13px;">
     <img src="assets/usdt.png" alt="USDT" style="width:16px; height:16px; border-radius:3px;"> Test USDT
   </div>
@@ -485,7 +485,7 @@
             <!-- Minimum Output (Slippage) -->
             <div>
               <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Minimum Acceptable Output</label>
-              <input type="number" id="swapMinOutput" class="form-control" step="0.01" value="4.90" style="margin-top:6px; font-family:var(--font-mono); font-size:13px;">
+              <input type="number" id="swapMinOutput" class="form-control" step="0.000001" placeholder="Minimum from live quote" style="margin-top:6px; font-family:var(--font-mono); font-size:13px;">
             </div>
 
             <!-- Authorization Checkbox -->
@@ -535,7 +535,7 @@
               <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px;">Execution Progress</div>
               <div id="swapStep1" class="swap-step-item active">
                 <span class="step-dot"></span>
-                <span class="step-label">1. Validating Authorization & Quota</span>
+                <span class="step-label">1. Validating Authorization & Wallet Limits</span>
               </div>
               <div id="swapStep2" class="swap-step-item">
                 <span class="step-dot"></span>

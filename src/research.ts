@@ -139,9 +139,12 @@ export async function researchPublicSources(goal: string, load: SourceLoader = l
 
 /** Public mainnet observations are labelled separately from the testnet demonstration token. */
 export async function researchNearMarket(load: SourceLoader = loadPublicPage): Promise<ResearchResult> {
+  // These large public feeds can take longer than a general source page. Topic discovery
+  // retains its original page timeout and overall serverless deadline.
+  const read: SourceLoader = load === loadPublicPage ? url => loadPublicPage(url, 0, 10_000) : load;
   const retrieve = async (url: string) => {
-    try { return await load(url); }
-    catch { return load(url); } // One bounded retry for transient public-feed failures.
+    try { return await read(url); }
+    catch { return read(url); } // One bounded retry for transient public-feed failures.
   };
   const results = await Promise.allSettled([retrieve(REF_PRICES), retrieve(REF_POOLS)]);
   const sources: ResearchSource[] = [], gaps: string[] = [];
