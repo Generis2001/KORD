@@ -227,7 +227,7 @@
         <label class="wallet-amount-label">Amount<input type="number" id="customFundInput" aria-label="Amount" class="form-control" placeholder="0.00" min="0.000001" step="any" inputmode="decimal"></label>
         <p id="agentWalletActionHelp" class="wallet-help">Deposits are signed by your linked wallet. Deposit NEAR first to activate the agent wallet and pay gas.</p>
         <button class="btn-primary" id="confirmFundBtn">Deposit NEAR</button>
-        <button class="btn-subtle" id="authorizeAgentWalletBtn">Authorize agent spending with MyNearWallet ↗</button>
+        <button class="btn-subtle" id="authorizeAgentWalletBtn">Authorize agent spending with Meteor Wallet ↗</button>
         <div id="agentWalletResult" class="wallet-result" role="status" aria-live="polite"></div>
         <div id="agentWalletRecovery" class="wallet-result"></div>
         <p class="wallet-help">Withdrawals return to your linked wallet. Unstaking follows the provider cooldown; available funds are collected while your authorized workspace is open. A small NEAR reserve covers network gas. Test USDT has no monetary value.</p>
@@ -327,7 +327,7 @@
   </div>
 
 
-  <!-- MODAL: Connect NEAR Wallet (MyNearWallet / Meteor / Here Wallet) -->
+  <!-- MODAL: Connect NEAR Wallet (Meteor Wallet) -->
   <div class="modal-backdrop" id="walletModal">
     <div class="modal-card">
       <div class="modal-header">
@@ -375,25 +375,13 @@
             </a>
           </div>
 
-          <!-- MyNearWallet -->
-          <div class="wallet-option-item" id="connectMyNearWalletBtn">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <div class="wallet-option-icon" style="background:#000; color:#00ec97;">N</div>
-              <div>
-                <div style="font-size:13.5px; font-weight:600; color:var(--text-primary);">MyNearWallet (Testnet)</div>
-                <div style="font-size:11.5px; color:var(--text-muted);">Official web wallet for NEAR testnet</div>
-              </div>
-            </div>
-            <span class="btn-mini-connect">Connect ↗</span>
-          </div>
-
-          <!-- Meteor / Injected Wallet -->
+          <!-- Meteor Wallet -->
           <div class="wallet-option-item" id="connectMeteorWalletBtn">
             <div style="display:flex; align-items:center; gap:12px;">
               <div class="wallet-option-icon" style="background:#5f259f; color:#fffaf5;">☄</div>
               <div>
-                <div style="font-size:13.5px; font-weight:600; color:var(--text-primary);">Meteor / Here Wallet</div>
-                <div style="font-size:11.5px; color:var(--text-muted);">Browser extension or mobile wallet</div>
+                <div style="font-size:13.5px; font-weight:600; color:var(--text-primary);">Meteor Wallet</div>
+                <div style="font-size:11.5px; color:var(--text-muted);">Connect with the web wallet or browser extension</div>
               </div>
             </div>
             <span class="btn-mini-connect">Connect</span>

@@ -78,7 +78,14 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   };
   if (url.pathname === '/api/wallet/config' && req.method === 'GET') {
     return json(200, { network: nearCfg.network, authReceiver: nearCfg.accountId,
-      walletUrl: nearCfg.network === 'testnet' ? 'https://testnet.mynearwallet.com' : 'https://app.mynearwallet.com' });
+      walletUrl: 'https://wallet.meteorwallet.app' });
+  }
+  if (url.pathname === '/api/wallet/authorize' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+      return json(200, { accountId: userAccount, authorized: true });
+    } catch (error: any) { return json(400, { error: error.message }); }
   }
   if ((url.pathname === '/api/wallet' || url.pathname === '/api/treasury') && req.method === 'GET') {
     try {

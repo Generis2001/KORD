@@ -17,3 +17,5 @@ dist/
 
 .playwright-cli/
 output/playwright/
+public/meteor.bundle.js
+public/meteor.bundle.js.LICENSE.txt

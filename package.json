@@ -5,6 +5,8 @@
   "type": "module",
   "description": "Autonomous business agent that delegates work, pays for verified deliverables, and enforces user-defined spending limits on NEAR.",
   "scripts": {
+    "build": "node scripts/build-wallet.mjs",
+    "postinstall": "npm run build",
     "test": "vitest run",
     "demo": "tsx src/demo.ts",
     "testnet:check": "tsx scripts/testnet-check.ts",
@@ -17,15 +19,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@meteorwallet/sdk": "3.24.1",
     "@types/pg": "^8.23.1",
     "better-sqlite3": "^13.0.3",
+    "buffer": "6.0.3",
     "dotenv": "^18.0.8",
     "near-api-js": "^7.3.1",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "util": "0.12.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
+    "esbuild": "0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.8.2",
     "vitest": "^5.0.5"

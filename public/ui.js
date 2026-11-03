@@ -52,7 +52,7 @@
     });
   });
 
-  const keyboardCards = ['sidebarDisconnectedCard', 'connectMyNearWalletBtn', 'connectMeteorWalletBtn', 'useConnectedWalletBtn'];
+  const keyboardCards = ['sidebarDisconnectedCard', 'connectMeteorWalletBtn', 'useConnectedWalletBtn'];
   keyboardCards.forEach(id => {
     const element = document.getElementById(id);
     if (!element) return;

@@ -35,7 +35,6 @@ const walletProviderOptions = document.getElementById('walletProviderOptions');
 const modalConnectedAccount = document.getElementById('modalConnectedAccount');
 const modalConnectedBalance = document.getElementById('modalConnectedBalance');
 const disconnectWalletBtn = document.getElementById('disconnectWalletBtn');
-const connectMyNearWalletBtn = document.getElementById('connectMyNearWalletBtn');
 const connectMeteorWalletBtn = document.getElementById('connectMeteorWalletBtn');
 const manualWalletInput = document.getElementById('manualWalletInput');
 const confirmManualWalletBtn = document.getElementById('confirmManualWalletBtn');
@@ -236,7 +235,7 @@ async function loadTreasuryBalance() {
   }
 }
 
-// Check if returning from MyNearWallet redirect
+// Complete any pending wallet redirect receipts.
 async function checkWalletCallback() {
   const params = new URLSearchParams(location.search);
   const accountId = params.get('account_id');
@@ -288,7 +287,34 @@ async function depositToAgent(amount, asset = 'NEAR') {
 window.sendOnchainNear = amount => depositToAgent(amount).catch(err => showToast(err.message));
 window.fundDirectly = window.sendOnchainNear;
 for (const id of ['agentWalletAction', 'agentWalletAsset']) document.getElementById(id).addEventListener('change', updateAgentAction);
-document.getElementById('authorizeAgentWalletBtn').addEventListener('click', () => mandateWallet.authorize().catch(err => showToast(err.message)));
+let authorizingMeteor = false;
+async function authorizeWithMeteor(expectedAccount = null) {
+  if (authorizingMeteor) return;
+  authorizingMeteor = true;
+  const button = document.getElementById('authorizeAgentWalletBtn');
+  button.disabled = true;
+  const sourceModal = fundModal.classList.contains('open') ? fundModal : walletModal.classList.contains('open') ? walletModal : null;
+  let authorized = false;
+  // Release the workspace dialog's focus trap before Meteor opens its own popup.
+  walletModal.classList.remove('open');
+  fundModal.classList.remove('open');
+  try {
+    connectedWallet = await mandateWallet.authorize(expectedAccount);
+    currentAccount = connectedWallet;
+    localStorage.setItem('mandate_connected_wallet', connectedWallet);
+    updateWalletUI();
+    walletModal.classList.remove('open');
+    button.style.display = 'none';
+    authorized = true;
+    showToast('Agent spending authorized with Meteor Wallet');
+  } catch (err) { showToast(err.message); }
+  finally {
+    if (sourceModal === fundModal || (sourceModal && !authorized)) sourceModal.classList.add('open');
+    authorizingMeteor = false;
+    button.disabled = false;
+  }
+}
+document.getElementById('authorizeAgentWalletBtn').addEventListener('click', () => authorizeWithMeteor(connectedWallet));
 document.getElementById('copyAgentAddressBtn').addEventListener('click', async () => {
   if (!agentSnapshot) return;
   try { await navigator.clipboard.writeText(agentSnapshot.accountId); showToast('Agent wallet address copied'); }
@@ -336,7 +362,7 @@ if (closeWalletModal) {
 
 if (disconnectWalletBtn) {
   disconnectWalletBtn.addEventListener('click', () => {
-    mandateWallet.disconnect(connectedWallet);
+    mandateWallet.disconnect(connectedWallet).catch(err => console.warn('Meteor disconnect:', err));
     connectedWallet = null;
     localStorage.removeItem('mandate_connected_wallet');
     updateWalletUI();
@@ -344,28 +370,7 @@ if (disconnectWalletBtn) {
   });
 }
 
-if (connectMyNearWalletBtn) connectMyNearWalletBtn.addEventListener('click', () => mandateWallet.authorize().catch(err => showToast(err.message)));
-
-if (connectMeteorWalletBtn) {
-  connectMeteorWalletBtn.addEventListener('click', async () => {
-    if (window.near && window.near.isMeteor) {
-      try {
-        const res = await window.near.requestSignIn();
-        if (res && res.accountId) {
-          connectedWallet = res.accountId;
-          localStorage.setItem('mandate_connected_wallet', connectedWallet);
-          updateWalletUI();
-          walletModal.classList.remove('open');
-          showToast('Connected Meteor Wallet: ' + connectedWallet);
-        }
-      } catch (err) {
-        alert('Meteor connect error: ' + err.message);
-      }
-    } else {
-      alert('Meteor or injected wallet extension not detected in this browser. Please use MyNearWallet or link testnet account.');
-    }
-  });
-}
+if (connectMeteorWalletBtn) connectMeteorWalletBtn.addEventListener('click', () => authorizeWithMeteor());
 
 if (confirmManualWalletBtn) {
   confirmManualWalletBtn.addEventListener('click', () => {
@@ -1446,7 +1451,7 @@ document.querySelectorAll('.modal-backdrop').forEach(modal => {
   if (sidebarDisconnectBtn) {
     sidebarDisconnectBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      mandateWallet.disconnect(connectedWallet);
+      mandateWallet.disconnect(connectedWallet).catch(err => console.warn('Meteor disconnect:', err));
     connectedWallet = null;
       currentAccount = null;
       localStorage.removeItem('mandate_connected_wallet');
