@@ -30,8 +30,9 @@ export interface MandateRunOptions {
 export interface MandateRunResult {
   mandate: { id: string; goal: string; requestedGoal: string; domain: string; totalBudget: string; perAgentCap: string; allowedAsset: string; status: string; allowedRecipients: string[]; allowedServices: string[]; restrictions: string[] };
   delegation: { taskId: string; role: string; agentAccount: string; description: string; status: string }[];
-  deliverable: { taskId: string; agent: string; preview: string; evidence: string[]; verification: { passed: boolean; problems: string[] }; sources: { url: string; title: string; retrievedAt: string; hash: string; excerpt?: string }[]; followUpQuestions?: string[]; searches?: ResearchResult['searches'] };
-  payout: { status: string; amount: string; recipient: string; onchain: boolean; txHash: string | null; explorerUrl: string | null; reasons: { code: string; message: string }[] };
+  deliverable: { taskId: string; agent: string; preview: string; evidence: string[]; verification: { passed: boolean; problems: string[]; evidenceHash?: string }; sources: { url: string; title: string; retrievedAt: string; hash: string; excerpt?: string; findings?: { kind: string; excerpt: string }[] }[]; followUpQuestions?: string[]; searches?: ResearchResult['searches'] };
+  payout: { status: string; amount: string; recipient: string; onchain: boolean; txHash: string | null; explorerUrl: string | null; reasons: { code: string; message: string }[];
+    receipt?: { network: 'testnet'; operationId: string; action: string; status: string; amount: string; asset: string; recipient?: string; walletOwner: string; recordedAt: string; contractId?: string; mandateId?: string; evidenceHash?: string; transactions: { stage: 'funding' | 'release'; hash: string; explorerUrl: string; confirmed: boolean; status: string }[] } };
   budgetState: { totalBudget: string; spent: string; remaining: string; agentSpent: Record<string, string> };
   steps: { phase: string; title: string; detail: string; badge: 'success' | 'warning' | 'error' | 'info'; activity?: string }[];
   aiModelUsed: string;
@@ -93,7 +94,7 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
     if (domain === 'past_purchases' && !research.sources.length && !research.gaps.length) analysis.report = '# Settlement audit\n\nNo recorded wallet transactions are available for this account. No settlements or compliance claims were invented.';
     store.updateTask(tasks[1].id, { status: 'completed', evidence: research.sources.map(source => source.url) });
     store.audit(id, 'ANALYSIS_COMPLETED', { rows: analysis.rows });
-    progress({ phase: 'Analyst', title: 'Comparison and recommendation built', detail: `${analysis.findings.length} cited passages and ${analysis.rows.filter(row => row.value).length} price observations. The answer uses retrieved evidence; quantity totals are estimates.`, badge: 'success' });
+    progress({ phase: 'Analyst', title: research.pricesRequested === false ? 'Research brief built' : 'Comparison and recommendation built', detail: `${analysis.findings.length} supporting passages${research.pricesRequested === false ? '; findings grouped with numbered source citations.' : ' and ' + analysis.rows.filter(row => row.value).length + ' price observations; quantity totals are estimates.'}`, badge: 'success' });
 
     const verification = verifyResearch(topic, research, analysis);
     if (/\bescrow\b|research\s+fee|\bpay\b.*for\s+research/i.test(goal) && !payment) { verification.problems.push('Use explicit fee syntax: ; research fee 0.01 NEAR, or ; escrow 0.01 NEAR to researcher.testnet'); verification.passed = false; }
@@ -111,24 +112,36 @@ export async function runAutonomousMandate(opts: MandateRunOptions = {}): Promis
         try {
           if (!opts.settleEscrow) throw new Error('Escrow is not configured. No transaction was sent.');
           const operation = await opts.settleEscrow({ id, amount: payment.amount, recipient: payment.recipient, evidenceHash: verification.evidenceHash });
-          payout.status = operation.action === 'escrow_release' && operation.status === 'confirmed' && operation.txHashes.length ? 'confirmed' : 'needs_review';
+          const termsMatch = operation.asset === 'NEAR' && units(operation.amount, 24) === units(payment.amount, 24)
+            && operation.recipient === payment.recipient && operation.evidenceHash === verification.evidenceHash;
+          payout.status = termsMatch && operation.action === 'escrow_release' && operation.status === 'confirmed' && operation.txHashes.length ? 'confirmed' : operation.status === 'failed' ? 'failed' : 'needs_review';
           payout.onchain = payout.status === 'confirmed'; payout.txHash = operation.txHashes.at(-1) || null;
           payout.explorerUrl = payout.txHash ? 'https://testnet.nearblocks.io/txns/' + payout.txHash : null;
+          const transaction = (hash: string, stage: 'funding' | 'release', status: string) => ({ hash, stage, status, confirmed: status === 'confirmed', explorerUrl: 'https://testnet.nearblocks.io/txns/' + hash });
+          const stage = operation.action === 'escrow_fund' ? 'funding' : 'release';
+          payout.receipt = { network: 'testnet', operationId: operation.id, action: operation.action, status: operation.status,
+            amount: operation.amount, asset: operation.asset, recipient: operation.recipient, walletOwner: operation.userAccount, recordedAt: operation.createdAt,
+            contractId: operation.contractId, mandateId: operation.mandateId, evidenceHash: operation.evidenceHash,
+            transactions: [...(operation.fundingTxHashes || []).map(hash => transaction(hash, 'funding', 'confirmed')),
+              ...operation.txHashes.map(hash => transaction(hash, stage, operation.status)),
+              ...(operation.attempt && !operation.txHashes.includes(operation.attempt.txHash) ? [transaction(operation.attempt.txHash, stage, operation.status === 'confirmed' ? 'needs_review' : operation.status)] : [])] };
+          if (!termsMatch) payout.reasons.push({ code: 'ESCROW_RECEIPT_MISMATCH', message: 'The recorded escrow operation does not match the authorized research fee. Check settlement before spending again.' });
           if (operation.error) payout.reasons.push({ code: 'ESCROW_NEEDS_REVIEW', message: operation.error });
         } catch (error: any) { payout.status = 'blocked'; payout.reasons.push({ code: 'ESCROW_UNAVAILABLE', message: error.message }); }
       }
     }
-    const status = verification.passed && !['blocked', 'needs_review'].includes(payout.status) ? 'completed' : 'partial';
+    if (payment) progress({ phase: 'Settlement', title: payout.status === 'confirmed' ? 'Research fee confirmed on NEAR testnet' : 'Research fee ' + payout.status.replace(/_/g, ' '), detail: payout.status === 'confirmed' ? `${payout.amount} released to ${payout.recipient}. Transaction: ${payout.txHash}.` : payout.reasons.map(reason => reason.message).join(' ') || 'Payment is not confirmed. Check the recorded transaction before retrying.', badge: payout.status === 'confirmed' ? 'success' : 'warning' });
+    const status = verification.passed && !['blocked', 'needs_review', 'failed'].includes(payout.status) ? 'completed' : 'partial';
     let remaining = 'No funds allocated';
     if (payment && !payment.problem) {
       const ceiling = units(payment.ceiling || payment.amount, 24);
       const released = payout.status === 'confirmed' ? units(payment.amount, 24) : 0n;
       const value = decimal(ceiling - released, 24).replace(/\.?0+$/, '');
-      remaining = value + ' testnet NEAR of authorization remains' + (payout.status === 'needs_review' ? ' · reconcile escrow before spending' : '');
+      remaining = value + ' testnet NEAR of authorization remains' + (payout.receipt && payout.status !== 'confirmed' ? ' · reconcile escrow before spending' : '');
     } else if (payment?.problem) remaining = 'Fee authorization invalid; payment blocked';
     return { mandate: { id, goal: researchGoal, requestedGoal: goal, domain, totalBudget: budgetLabel, perAgentCap: payment ? (payment.perAgentCap || payment.amount) + ' testnet NEAR' : 'No fee requested', allowedAsset: 'NEAR', status, allowedRecipients: mandate.allowedRecipients, allowedServices: mandate.allowedServices!, restrictions },
       delegation: tasks.map(task => ({ taskId: task.id, role: task.role, agentAccount: task.agentAccount, description: task.description, status: store.getTask(task.id).status })),
-      deliverable: { taskId: tasks[0].id, agent: agents.researcher, preview: analysis.report, evidence: research.sources.map(source => source.url), verification, followUpQuestions: research.followUpQuestions, searches: research.searches, sources: research.sources.map(({ url, title, retrievedAt, hash, text }) => ({ url, title, retrievedAt, hash, excerpt: text.slice(0, 650) })) }, payout,
+      deliverable: { taskId: tasks[0].id, agent: agents.researcher, preview: analysis.report, evidence: research.sources.map(source => source.url), verification, followUpQuestions: research.followUpQuestions, searches: research.searches, sources: research.sources.map(({ url, title, retrievedAt, hash, text }) => ({ url, title, retrievedAt, hash, excerpt: text.slice(0, 650), findings: analysis.findings.filter(finding => finding.source === url).map(({ kind, excerpt }) => ({ kind, excerpt })) })) }, payout,
       budgetState: { totalBudget: budgetLabel, spent: payout.status === 'confirmed' ? payout.amount : '$0', remaining, agentSpent: payout.status === 'confirmed' ? { [payout.recipient]: payout.amount } : {} }, steps, aiModelUsed: 'Local agent pipeline · no paid APIs' };
   } finally { if (!opts.store) { store.db.close(); await store.pgPool?.end(); } }
 }

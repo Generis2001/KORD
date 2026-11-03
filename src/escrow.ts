@@ -68,6 +68,13 @@ export class VerifiedEscrow {
       const previous = await this.wallet.receipts.get(releaseId);
       if (previous) {
         if (previous.userAccount !== user || previous.amount !== request.amount || previous.recipient !== request.recipient || previous.evidenceHash !== request.evidenceHash) throw new Error('Escrow request ID is already used.');
+        if (!previous.fundingTxHashes) {
+          const funding = await this.wallet.receipts.get(fundId);
+          if (funding?.status === 'confirmed') {
+            previous.fundingTxHashes = [...funding.txHashes];
+            await this.wallet.receipts.save(previous);
+          }
+        }
         return previous;
       }
       if (await this.wallet.receipts.unresolved(user)) throw new Error('Reconcile the pending wallet transaction before escrow.');
@@ -89,12 +96,12 @@ export class VerifiedEscrow {
         await this.wallet.receipts.save(funded);
       }
       if (funded.status !== 'confirmed') return funded;
-      const state = await this.wallet.view(contractId, 'get_mandate', { mandate_id: mandateId });
-      if (!state || state.owner !== accountId || state.verifier !== verifier || state.budget !== amount.toString() || state.per_agent_cap !== amount.toString() || state.status !== 'Active' || !state.allowed_agents.includes(request.recipient)) throw new Error('On-chain escrow terms do not match the mandate.');
-      const released: WalletOperation = { ...funded, id: releaseId, action: 'escrow_release', status: 'pending', txHashes: [], createdAt: new Date().toISOString() };
+      const released: WalletOperation = { ...funded, id: releaseId, action: 'escrow_release', status: 'pending', fundingTxHashes: [...funded.txHashes], txHashes: [], createdAt: new Date().toISOString() };
       delete released.attempt;
       await this.wallet.receipts.save(released);
       try {
+        const state = await this.wallet.view(contractId, 'get_mandate', { mandate_id: mandateId });
+        if (!state || state.owner !== accountId || state.verifier !== verifier || state.budget !== amount.toString() || state.per_agent_cap !== amount.toString() || state.status !== 'Active' || !state.allowed_agents.includes(request.recipient)) throw new Error('On-chain escrow terms do not match the mandate.');
         const signer = new Account(verifier, this.wallet.provider, key as KeyPairString);
         const receipt = await this.wallet.call(signer, contractId, 'approve_payment', { mandate_id: mandateId, task_id: taskId, agent: request.recipient, amount: amount.toString(), evidence_hash: request.evidenceHash }, 0n, '100', released);
         const hash = confirmedHash(receipt), events = parseEscrowEvents(receipt);

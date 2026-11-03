@@ -146,6 +146,25 @@ kbd { font-family: var(--font-mono); font-weight: 400; }
 .run-steps li > span { display: block; font-size: 10px; color: var(--text-muted); }
 .run-steps li > strong { display: block; font-size: 12px; font-weight: 500; }
 .run-source > span { display: block; margin-top: 6px; color: var(--text-muted); }
+.run-source blockquote { margin: 8px 0; padding-left: 10px; border-left: 1px solid var(--border-subtle); color: var(--text-muted); }
+.research-fee-receipt { padding: 14px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-primary); }
+.research-fee-receipt > h4 { margin: 0 0 8px; }
+.research-fee-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.research-fee-status > strong { color: var(--text-primary); font-size: 14px; }
+.research-fee-status > span { text-transform: capitalize; }
+.research-fee-receipt.is-confirmed .research-fee-status > span { color: var(--success); }
+.research-fee-meta { margin: 12px 0; }
+.research-fee-meta > div { display: grid; grid-template-columns: minmax(90px, 130px) minmax(0, 1fr); gap: 10px; margin-top: 6px; }
+.research-fee-meta dt { color: var(--text-muted); }
+.research-fee-meta dd { margin: 0; overflow-wrap: anywhere; }
+.research-fee-meta code { font-size: 11px; }
+.research-fee-transaction { margin-top: 10px; }
+.research-fee-transaction > span, .research-fee-transaction > a { display: block; }
+.research-fee-transaction > a { overflow-wrap: anywhere; }
+.research-fee-receipt > small { display: block; margin-top: 10px; color: var(--text-muted); }
+@media (max-width: 540px) {
+  .research-fee-meta > div { grid-template-columns: minmax(0, 1fr); gap: 2px; margin-top: 10px; }
+}
 .mandate-answer { color: var(--text-primary); font-size: 14px; line-height: 1.8; }
 .refine-research { align-self: flex-start; padding: 5px 0; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .refine-research:hover { color: var(--accent-text); }

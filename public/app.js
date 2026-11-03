@@ -1080,14 +1080,15 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
     const label = mismatchedHistory ? 'Saved report for another directive' : !currentWorkflow ? 'Historical research report' : result.mandate.status === 'completed' ? 'Mandate completed' : 'Mandate needs more evidence or settlement review';
     const open = el.querySelector('.mandate-run')?.open || false;
     const details = `<p class="run-directive">${escapeHtml(result.mandate.goal)}</p>
-      <p>Research fee: <strong>${currentWorkflow ? payout.status === 'not_requested' ? '0 NEAR' : escapeHtml(payout.amount) + ' · ' + escapeHtml(payout.status) : 'Historical record'}</strong> · Budget: ${escapeHtml(result.budgetState.totalBudget)}</p>
+      ${currentWorkflow ? MandateResearch.feeReceipt(payout, result.budgetState.totalBudget) : '<h4>Settlement</h4><p>' + settlement + '</p>'}
       <p>${escapeHtml(result.mandate.restrictions?.[0] || 'Purchases require explicit authorization.')}</p>
       <h4>Agent workflow</h4>${result.steps?.length ? runSteps(result.steps) : `<ol>${tasks}</ol>`}
       ${result.deliverable.searches?.length ? `<h4>Online discovery</h4><ul>${result.deliverable.searches.map(search => `<li>${escapeHtml(search.provider)} · ${escapeHtml(search.query)} · ${search.found} candidate links${search.error ? ' · ' + escapeHtml(search.error) : ''}</li>`).join('')}</ul>` : ''}
       <h4>${passed ? 'Evidence checks passed' : 'Evidence checks found gaps'}</h4>
       ${issues ? `<ul>${issues}</ul>` : '<p>Source integrity, freshness, coverage and calculations checked.</p>'}
-      <h4>Source receipts</h4>${sources.length ? sources.map(source => `<p class="run-source"><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small>${source.excerpt ? `<span>${escapeHtml(source.excerpt)}</span>` : ''}</p>`).join('') : '<p>No source evidence was retrieved.</p>'}
-      <h4>Settlement</h4><p>${settlement}</p>${mismatchedHistory ? `<h4>Recorded report</h4><div class="deliverable-body">${renderMarkdownRich(result.deliverable.preview)}</div>` : ''}`;
+      <p>These checks establish source provenance and coverage. Publisher claims, announcements and targets are not independently certified.</p>
+      <h4>Source receipts</h4>${sources.length ? sources.map(source => `<div class="run-source"><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small>${source.findings?.length ? [...new Set(source.findings.map(finding => finding.excerpt))].map(excerpt => `<blockquote>${escapeHtml(excerpt)}</blockquote>`).join('') : source.excerpt ? `<span>${escapeHtml(source.excerpt)}</span>` : ''}</div>`).join('') : '<p>No source evidence was retrieved.</p>'}
+      ${mismatchedHistory ? `<h4>Recorded report</h4><div class="deliverable-body">${renderMarkdownRich(result.deliverable.preview)}</div>` : ''}`;
     el.innerHTML = `${mandateAvatar}<div class="message-content">
       ${runDisclosure(label, details, false, open)}
       <div class="mandate-answer deliverable-body">${mismatchedHistory ? '<p>This saved response belongs to another directive. Its original report is available in the disclosure above. Send your current request again for a fresh result.</p>' : renderMarkdownRich(result.deliverable.preview)}</div>
@@ -1137,6 +1138,7 @@ function renderMarkdownRich(md) {
 
   for (let line of lines) {
     const trimmed = line.trim();
+    if (inList && !trimmed.startsWith('- ') && !trimmed.startsWith('• ')) { html += '</ul>'; inList = false; }
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       if (!inTable) {
         if (inList) { html += '</ul>'; inList = false; }

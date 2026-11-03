@@ -116,19 +116,19 @@ describe('free public-source specialists', () => {
     expect(settle).not.toHaveBeenCalled();
   });
   it('passes a verified proof and explicit amount to escrow only after all specialists run', async () => {
-    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, status: 'confirmed' as const, txHashes: ['confirmed-hash'], createdAt: new Date().toISOString() }));
+    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, recipient: request.recipient, evidenceHash: request.evidenceHash, status: 'confirmed' as const, txHashes: ['confirmed-hash'], createdAt: new Date().toISOString() }));
     const result = await runAutonomousMandate({ goal: goal + '; escrow 0.01 NEAR to researcher.testnet', loadSource: load(), settleEscrow: settle });
     expect(settle).toHaveBeenCalledWith(expect.objectContaining({ amount: '0.01', recipient: 'researcher.testnet', evidenceHash: expect.stringMatching(/^[a-f0-9]{64}$/) }));
     expect(result.payout.status).toBe('confirmed');
   });
   it('settles an explicitly authorized research fee through escrow using the default researcher', async () => {
-    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, status: 'confirmed' as const, txHashes: ['confirmed-hash'], createdAt: new Date().toISOString() }));
+    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, recipient: request.recipient, evidenceHash: request.evidenceHash, status: 'confirmed' as const, txHashes: ['confirmed-hash'], createdAt: new Date().toISOString() }));
     const result = await runAutonomousMandate({ goal: goal + '; research fee 0.01 NEAR', loadSource: load(), settleEscrow: settle });
     expect(settle).toHaveBeenCalledWith(expect.objectContaining({ amount: '0.01', recipient: 'mandate-generis-researcher.testnet' }));
     expect(result.payout).toMatchObject({ status: 'confirmed', amount: '0.01 testnet NEAR' });
   });
   it('reports exact remaining authorized NEAR after a research fee', async () => {
-    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, status: 'confirmed' as const, txHashes: ['confirmed-hash'], createdAt: new Date().toISOString() }));
+    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, recipient: request.recipient, evidenceHash: request.evidenceHash, status: 'confirmed' as const, txHashes: ['confirmed-hash'], createdAt: new Date().toISOString() }));
     const result = await runAutonomousMandate({ goal: goal + '. Budget 0.05 NEAR; research fee 0.01 NEAR', loadSource: load(), settleEscrow: settle });
     expect(result.budgetState.remaining).toContain('0.04 testnet NEAR');
   });

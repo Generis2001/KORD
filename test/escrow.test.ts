@@ -37,6 +37,9 @@ describe('verifier-gated testnet escrow', () => {
   it('funds from the owner agent wallet and releases only through the verifier contract call', async () => {
     const operation = await escrow.settle('alice.testnet', request);
     expect(operation).toMatchObject({ action: 'escrow_release', status: 'confirmed', evidenceHash: request.evidenceHash });
+    expect(operation.fundingTxHashes).toEqual(['tx-1']);
+    expect(operation.txHashes).toEqual(['tx-2']);
+    expect(await wallet.receipts.get(operation.id)).toMatchObject({ fundingTxHashes: ['tx-1'], txHashes: ['tx-2'] });
     expect(calls.map(call => call.method)).toEqual(['create_mandate', 'approve_payment']);
     expect(calls[0].signer).toBe(wallet.identity('alice.testnet').accountId);
     expect(calls[0].deposit).toBe(units('0.01', 24));
@@ -62,6 +65,23 @@ describe('verifier-gated testnet escrow', () => {
     const operation = await escrow.settle('alice.testnet', request);
     expect(operation.status).toBe('needs_review');
     expect(operation.txHashes).toHaveLength(0);
+    expect(operation.fundingTxHashes).toEqual(['tx-1']);
+  });
+  it('retains funded escrow proof when a state lookup fails before release', async () => {
+    vi.mocked(wallet.view).mockRejectedValueOnce(new Error('RPC unavailable'));
+    const operation = await escrow.settle('alice.testnet', request);
+    expect(operation).toMatchObject({ status: 'needs_review', error: 'RPC unavailable', fundingTxHashes: ['tx-1'], txHashes: [] });
+    expect(calls).toHaveLength(1);
+    expect(await escrow.settle('alice.testnet', request)).toEqual(operation);
+    expect(calls).toHaveLength(1);
+  });
+  it('restores funding hashes on an older release record without resending funds', async () => {
+    const operation = await escrow.settle('alice.testnet', request);
+    delete operation.fundingTxHashes;
+    await wallet.receipts.save(operation);
+    const restored = await escrow.settle('alice.testnet', request);
+    expect(restored.fundingTxHashes).toEqual(['tx-1']);
+    expect(calls).toHaveLength(2);
   });
   it('blocks missing configuration, mainnet, invalid proof and over-limit amounts before signing', async () => {
     await expect(new VerifiedEscrow(wallet, { contractId: '', verifier: '', key: '' }).settle('alice.testnet', request)).rejects.toThrow('requires');

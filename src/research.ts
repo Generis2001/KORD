@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { loadPublicPage, publicUrl, type PublicPage, type SourceLoader } from './public-sources.js';
 import { discoverSources, publisher, referenceLinks, supportingLinks, type SearchAttempt } from './discovery.js';
 import { clarificationQuestions, evidenceGaps, evidenceRequirements, extractFindings, relevant, requestedLocation, topicTerms, type ResearchFinding } from './research-evidence.js';
+import { reportCitations, reportFollowUps, readableFinding, researchTitle, topicResearchReport } from './research-report.js';
 
 export interface PublishedPrice { value: string; currency: string; label: string; kind: 'published price' | 'market price' }
 export interface ResearchSource {
@@ -52,7 +53,8 @@ export function sourceFromPage(page: PublicPage): ResearchSource {
 export function researchPlan(goal: string) {
   const urls = [...new Set((goal.match(/https:\/\/[^\s<>"')]+/g) || []).map(url => url.replace(/[.,;]+$/, '')))];
   const withoutUrls = goal.replace(/https:\/\/\S+/g, '').replace(/;?\s*escrow\s+\d+(?:\.\d+)?\s+NEAR\s+to\s+\S+/gi, '').replace(/(?:you may|spend|budget|up to|no more than)[^.]*[$£€]\s*\d+(?:\.\d+)?[^.]*/gi, '');
-  const subject = withoutUrls.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|analy[sz]e|verify|explain|summari[sz]e|investigate|identify|gather|published|public|online|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|mandate|quotations?|quotes?|what is|how does|tell me about)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim().replace(/[.,;]+$/, '');
+  const subjectInput = withoutUrls.replace(/^(?:compare|research|analy[sz]e)\s+(?:the\s+)?(?:published\s+)?(?:prices?|pricing|benefits?|risks?|advantages?|disadvantages?)[\s\S]*?\b(?:for|of)\s+/i, '');
+  const subject = subjectInput.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|analy[sz]e|verify|explain|summari[sz]e|investigate|identify|gather|published|public|online|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|mandate|quotations?|quotes?|what is|how does|tell me about|benefits?|risks?|advantages?|disadvantages?|pros|cons)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim().replace(/^[.,;:]+\s*|[.,;]+$/g, '');
   const quantity = Number(withoutUrls.match(/\b(\d+)\s+(?:office\s+)?(?:chairs?|laptops?|units?|items?)/i)?.[1] || 1);
   const requestedCount = withoutUrls.match(/\b(three|two|one|\d+)\s+(?:suppliers?|vendors?|providers?|sources?)/i)?.[1]?.toLowerCase();
   const count = requestedCount ? ({ three: 3, two: 2, one: 1 } as Record<string, number>)[requestedCount] || Number(requestedCount) : Math.max(urls.length, 2);
@@ -195,11 +197,10 @@ export function analyzeResearch(research: ResearchResult) {
   const rows = research.sources.filter(source => !source.supportingFor).flatMap(source => source.prices.length
     ? source.prices.map(price => ({ source: source.url, label: price.label, value: price.value, currency: price.currency, total: price.kind === 'published price' ? quantityTotal(price.value, research.quantity) : '', kind: price.kind }))
     : [{ source: source.url, label: source.title, value: '', currency: '', total: '', kind: 'public information' }]);
-  const delivery = research.requestedFacets?.includes('delivery');
-  const table = `| Source / product | Observed price | Quantity estimate |${delivery ? ' Published delivery terms |' : ''} Evidence |\n|---|---|---|${delivery ? '---|' : ''}---|\n` + rows.map(row => {
-    const terms = findings.find(finding => finding.kind === 'delivery' && publisher(finding.source) === publisher(row.source));
-    return `| ${markdown(row.label)} | ${row.value ? markdown(row.value + ' ' + row.currency + ' · ' + row.kind) : 'Not published'} | ${row.total ? markdown(row.total + ' ' + row.currency + ' for ' + research.quantity) : 'Not applicable'} |${delivery ? ' ' + (terms ? markdown(terms.excerpt) + ` [Policy](${terms.source})` : 'Further supplier details needed') + ' |' : ''} [Source](${row.source}) |`;
-  }).join('\n');
+  const citations = reportCitations(research);
+  const table = '| Source / product | Observed price | Quantity estimate |\n|---|---|---|\n' + rows.map(row =>
+    `| ${markdown(row.label)} ${citations.cite(row.source)} | ${row.value ? markdown(row.value + ' ' + row.currency) : 'Not published'} | ${row.total ? markdown(row.total + ' ' + row.currency + ' for ' + research.quantity) : 'Not applicable'} |`
+  ).join('\n');
   const comparable = rows.filter(row => row.kind === 'published price' && row.value && row.currency);
   const currencies = new Set(comparable.map(row => row.currency));
   const lowest = currencies.size === 1 && comparable.length >= 2 ? [...comparable].sort((a,b) => comparePrices(a.value, b.value))[0] : undefined;
@@ -215,24 +216,19 @@ export function analyzeResearch(research: ResearchResult) {
   };
   const liquidityTable = liquidity.length ? '\n## Public pool liquidity\n\n| Pool | NEAR reserve | USDT reserve | Published TVL (USD) | Swap fee |\n|---|---|---|---|---|\n' + liquidity.map((pool: any) =>
     `| ${pool.id} | ${formatReserve(pool.reserves[pool.tokens.indexOf('wrap.near')], 24)} | ${formatReserve(pool.reserves[pool.tokens.indexOf('usdt.tether-token.near')], 6)} | ${Number(pool.tvlUsd).toFixed(2)} | ${(Number(pool.swapFeeBasisPoints) / 100).toFixed(2)}% |`).join('\n') + '\n\nReserves and TVL describe the public DEX pool. They do not guarantee an executable quote or fiat payout capacity.\n\n' : '';
-  const questions = research.followUpQuestions?.length ? '\n## Clarification needed\n\n' + research.followUpQuestions.map(question => '- ' + markdown(question)).join('\n') + '\n' : '';
-  const quoted = (entries: ResearchFinding[]) => entries.map(finding => `- “${markdown(finding.excerpt)}” [Source](${finding.source})`).join('\n');
-  const answerSources = research.sources.filter(source => !source.supportingFor).sort((a, b) => Number(new URL(a.url).hostname === 'en.wikipedia.org') - Number(new URL(b.url).hostname === 'en.wikipedia.org'));
-  const answerFindings: ResearchFinding[] = [], answerPublishers = new Set<string>();
-  for (const source of answerSources) {
-    if (answerPublishers.has(publisher(source.url))) continue;
-    const entries = findings.filter(finding => finding.source === source.url && finding.kind === 'finding');
-    if (entries.length) { answerPublishers.add(publisher(source.url)); answerFindings.push(...entries.slice(0, 2)); }
-  }
-  const topicReport = `# Research for: ${markdown(research.subject)}\n\n## Answer\n\n${answerFindings.length ? quoted(answerFindings.slice(0, 6)) : 'I could not establish a supported answer from the retrieved pages yet.'}\n\n` +
-    (research.requestedFacets?.length ? '## Analysis\n\n' + research.requestedFacets.map(facet => {
-      const entries = findings.filter(finding => finding.kind === facet).slice(0, 3);
-      return entries.length ? `### ${facet[0].toUpperCase() + facet.slice(1)}\n\n${quoted(entries)}\n` : '';
-    }).join('\n') : '') +
-    '\nThese are attributed passages from the retrieved publications. Source provenance and coverage are checked separately from the publishers’ claims.\n' + questions;
-  const report = research.pricesRequested === false ? topicReport : `# Research for: ${markdown(research.subject)}\n\n## Published observations\n\n${table}\n${liquidityTable}\n## Executive recommendation\n\n${recommendation}\n\n` +
+  const topicReport = topicResearchReport(research, findings);
+  const commercialTerms = (research.requestedFacets || []).map(facet => {
+    const entries = findings.filter(finding => finding.kind === facet);
+    const heading = facet === 'delivery' ? 'Published delivery terms' : 'Published ' + facet + ' terms';
+    const unique = [...new Set(research.sources.filter(source => !source.supportingFor).map(source => publisher(source.url)))];
+    return `### ${heading}\n\n` + unique.map(owner => {
+      const terms = entries.find(finding => publisher(finding.source) === owner);
+      return `- **${owner}:** ${terms ? markdown(readableFinding(terms.excerpt, research.subject, facet)) + ' ' + citations.cite(terms.source) : 'Not established by the retrieved sources.'}`;
+    }).join('\n') + '\n\n';
+  }).join('');
+  const report = research.pricesRequested === false ? topicReport : `# ${researchTitle(research.subject)}\n\n${recommendation}\n\n## Published observations\n\n${table}\n${liquidityTable}\n\n` +
     (research.quantity > 1 ? 'Quantity estimates multiply the published unit price; they are not negotiated quotations and exclude unpublished shipping and tax.\n\n' : '') +
-    questions + (research.gaps.length && !questions ? '\n## Evidence to resolve\n\n' + research.gaps.map(gap => '- ' + markdown(gap)).join('\n') : '');
+    commercialTerms + reportFollowUps(research) + citations.sources();
   return { rows, report, recommendation: research.pricesRequested === false ? 'Review the cited findings and the requested topic evidence.' : recommendation, liquidity, findings };
 }
 

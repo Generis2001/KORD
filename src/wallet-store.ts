@@ -9,6 +9,7 @@ export interface WalletOperation {
   recipient?: string;
   status: 'pending' | 'funding_confirmed' | 'confirmed' | 'failed' | 'needs_review';
   txHashes: string[];
+  fundingTxHashes?: string[];
   error?: string;
   phase?: 'execution' | 'funding' | 'payout';
   attempt?: { txHash: string; signerId: string; kind: 'storage' | 'execution' | 'funding' | 'payout' };

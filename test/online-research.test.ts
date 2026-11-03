@@ -25,10 +25,13 @@ describe('online research without supplied links', () => {
     const result = await runAutonomousMandate({ goal: question, loadSource: loader({ [a]: article('Energy A'), [b]: article('Energy B') }) });
     expect(result.mandate.status).toBe('completed');
     expect(result.deliverable.verification.passed).toBe(true);
-    expect(result.deliverable.preview).toContain('## Answer');
+    expect(result.deliverable.preview).toMatch(/^# Solar energy in Nigeria/);
     expect(result.deliverable.preview).toContain('### Benefits');
     expect(result.deliverable.preview).toContain('### Risks');
-    expect(result.deliverable.preview).toContain(`[Source](${a})`);
+    expect(result.deliverable.preview).toContain(`[1](${a})`);
+    expect(result.deliverable.preview).not.toMatch(/See the overview|## Answer|attributed passages/);
+    expect(result.deliverable.preview.match(/reduces dependence on fuel generators/g)).toHaveLength(1);
+    expect(result.deliverable.preview.match(/expensive battery storage/g)).toHaveLength(1);
     expect(result.deliverable.preview).not.toMatch(/Not published|lowest supplier|Missing evidence|HTTPS.*links/);
     expect(result.deliverable.searches?.some(search => search.found === 2)).toBe(true);
     expect(result.payout.status).toBe('not_requested');
@@ -155,7 +158,7 @@ describe('online research without supplied links', () => {
   });
 
   it('releases an explicit natural-language testnet fee only after link-free research and verification', async () => {
-    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, status: 'confirmed' as const, txHashes: ['confirmed-fee-hash'], createdAt: new Date().toISOString() }));
+    const settle = vi.fn(async request => ({ id: request.id, userAccount: 'alice.testnet', action: 'escrow_release', asset: 'NEAR' as const, amount: request.amount, recipient: request.recipient, evidenceHash: request.evidenceHash, status: 'confirmed' as const, txHashes: ['confirmed-fee-hash'], createdAt: new Date().toISOString() }));
     const result = await runAutonomousMandate({ goal: question + ', charge a research fee of 0.01 testnet NEAR.', loadSource: loader({ [a]: article('A'), [b]: article('B') }), settleEscrow: settle });
     expect(result.deliverable.verification.passed).toBe(true);
     expect(result.mandate.goal).toBe(question);
