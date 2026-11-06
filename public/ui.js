@@ -20,7 +20,7 @@
   updateThemeButton();
   themeButton.addEventListener('click', () => {
     root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem('kord_theme', root.dataset.theme); } catch {}
+    try { localStorage.setItem('mandate_theme', root.dataset.theme); } catch {}
     updateThemeButton();
   });
 

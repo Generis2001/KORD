@@ -13,7 +13,7 @@ export function researchPaymentRequest(goal: string) {
   try {
     const payment = units(amount, 24);
     if (researchGoal.length < 4) problem = 'State the research question before authorizing its fee.';
-    if (/research\s+fee\s+(?:of\s+)?\d|pay\s+\d+(?:\.\d+)?\s+(?:testnet\s+)?NEAR\s+for\s+research/i.test(researchGoal)) problem = 'Use one explicit research fee per KORD directive.';
+    if (/research\s+fee\s+(?:of\s+)?\d|pay\s+\d+(?:\.\d+)?\s+(?:testnet\s+)?NEAR\s+for\s+research/i.test(researchGoal)) problem = 'Use one explicit research fee per mandate.';
     if (ceiling && payment > units(ceiling, 24)) problem = 'Research fee exceeds the authorized NEAR budget.';
     if (perAgentCap && payment > units(perAgentCap, 24)) problem = 'Research fee exceeds the per-agent NEAR cap.';
   } catch (error: any) { problem = error.message; }

@@ -1,18 +1,14 @@
-# KORD
-
-**Programmable control for autonomous agents.**
+# Mandate
 
 ### Autonomous research and wallet agent on NEAR Testnet
 
-**KORD** helps a business delegate public-source research and manage a separate agent treasury. Users give explicit spending permissions; local specialists retrieve and verify evidence, and an authorized research fee can settle through a NEAR escrow contract. Wallet commands deposit, withdraw, swap, send and stake actual testnet assets, with confirmed transaction receipts.
+**Mandate** helps a business delegate public-source research and manage a separate agent treasury. Users give explicit spending permissions; local specialists retrieve and verify evidence, and an authorized research fee can settle through a NEAR escrow contract. Wallet commands deposit, withdraw, swap, send and stake actual testnet assets, with confirmed transaction receipts.
 
-Hosted testnet demo: **[https://kord-generis2001.vercel.app](https://kord-generis2001.vercel.app)**
-
-Public repository: **[Generis2001/KORD](https://github.com/Generis2001/KORD)**
+Hosted testnet demo: **[https://mandateme.vercel.app](https://mandateme.vercel.app)**
 
 ## Judge guide
 
-Built for **NEAR HACKATHON: Build Beyond Boundaries**. The product fits **Autonomous Business** (`business`), **AI Security & Defense** (`security`) and **Agent Economy** (`agents`) through payments for verified research. The repository's commits begin on October 22, 2026, within the October 19–November 14 build window in [HACKATHON.md, Q-001](https://nearhackathon.com/HACKATHON.md). Q-010 permits testnet projects, and Q-011 makes the listed integrations optional. The [hackathon review](docs/hackathon-review.md) records the sources, commit timestamps and remaining submission requirements.
+Built for **NEAR HACKATHON: Build Beyond Boundaries**. The product fits **Autonomous Business** (`business`), **AI Security & Defense** (`security`) and **Agent Economy** (`agents`) through payments for verified research. The repository's commits begin on October 22, 2026, within the October 19–November 14 build window in [HACKATHON.md, Q-001](https://nearhackathon.com/HACKATHON.md). Q-010 permits testnet projects, and Q-011 makes the listed integrations optional.
 
 Use the hosted demo for the browser walkthrough, or follow [Local development setup](#local-development-setup) to run the same app at `http://localhost:3000`. For a check that needs no wallet or blockchain credentials, install dependencies and run `npm run demo`; the [verification commands](#verification-commands) explain its output and the automated checks.
 
@@ -33,7 +29,7 @@ Follow these steps in order. Each successful financial action should show a conf
 | 2. Fund the agent | Send `Deposit 1 NEAR`, click **Sign deposit in wallet ↗** in the reply and approve the transaction in Meteor. | **Settlement ledger** records a confirmed 1 NEAR deposit and its receipt. The agent's balance updates; the app deducts account storage from available NEAR. Your linked wallet pays the deposit and its transaction gas. The agent retains a further 0.02 NEAR reserve for subsequent gas. |
 | 3. Run free research | Send `Compare NEAR and USDT market prices and pool liquidity on Ref Finance`. | A report shows public market observations, source URLs, retrieval times and verification results. Expand the agent steps to inspect planning, retrieval, analysis and verification. The research fee is **not requested** and no payment is made. |
 | 4. Check the service payee | Open **Approved payees**. Ensure `mandate-generis-researcher.testnet` is present; add it if it was removed. For a customized local setup, use the account in `AGENT_RESEARCHER`. | The researcher is an approved recipient for this linked wallet. Approval changes persist after refreshing. |
-| 5. Pay for verified work | Send `Compare NEAR and USDT market prices and pool liquidity on Ref Finance; research fee 0.001 NEAR`. | When evidence verification passes, the agent funds a directive in the escrow contract and the configured verifier releases 0.001 testnet NEAR to the researcher. The reply shows a **confirmed** payment and an explorer link; the ledger records funding and release separately. Failed evidence or authorization produces a blocked payment instead. |
+| 5. Pay for verified work | Send `Compare NEAR and USDT market prices and pool liquidity on Ref Finance; research fee 0.001 NEAR`. | When evidence verification passes, the agent funds a mandate in the escrow contract and the configured verifier releases 0.001 testnet NEAR to the researcher. The reply shows a **confirmed** payment and an explorer link; the ledger records funding and release separately. Failed evidence or authorization produces a blocked payment instead. |
 | 6. Check recipient restrictions | Ensure `blocked-demo.testnet` is absent from **Approved payees**, then send `Pay 0.01 NEAR to blocked-demo.testnet`. | The reply requires approving that recipient first. No payment is submitted and no confirmed transaction receipt is created for this rejection. |
 | 7. Check the amount limit | Send `Withdraw 21 NEAR`. | The request is rejected for exceeding the 20 NEAR single-transaction limit, before an on-chain withdrawal is signed. This tests the cap even when the agent holds less than 21 NEAR. |
 | 8. Inspect and revisit | Open **Settlement ledger**, follow a confirmed transaction link, refresh the workspace, then reopen the conversation from the sidebar. | The explorer identifies the actual signer, recipient and transaction outcome. The conversation restores its report and receipt links, and the ledger retains the confirmed operations for this wallet. |
@@ -58,7 +54,7 @@ If public feeds are unreachable or required evidence is missing, expect a partia
 
 ## NEAR features and deployed contracts
 
-| NEAR feature used | What it enables in KORD | Implementation |
+| NEAR feature used | What it enables in Mandate | Implementation |
 | --- | --- | --- |
 | Named accounts and implicit accounts | A linked testnet account identifies the owner. Each owner gets a separate agent account derived from a stable server secret; its address is the Ed25519 public key encoded as 64 hexadecimal characters. | [Agent account derivation and balances](src/agent-wallet.ts) |
 | Function-call access keys and NEP-413 message proofs | Meteor installs a browser authentication key scoped to the configured server account and `mandate_auth`. Signed API requests bind the owner, route, body and timestamp, and the backend checks that the key is still installed. Meteor also supports NEP-413 proofs. | [Meteor adapter](src/browser/meteor.ts), [browser request signing](public/wallet.js), [ownership verification](src/wallet-auth.ts) |
@@ -68,13 +64,13 @@ If public feeds are unreachable or required evidence is missing, expect a partia
 | Standard NEAR staking-pool interface | The agent stakes with `deposit_and_stake`, unstakes shares, reads live positions and withdraws after the validator cooldown. | [Staking execution and position views](src/agent-wallet.ts) |
 | Final NEAR RPC receipts and NearBlocks | Operations save the signed transaction hash before broadcast and query final outcomes. The ledger and history expose receipts; reconciliation avoids signing a duplicate after an ambiguous response. | [Wallet execution](src/agent-wallet.ts), [durable operations](src/wallet-store.ts), [receipt audit](src/receipt-audit.ts) |
 
-The backend controls the agent accounts' signing keys. General wallet spending checks run on the server; escrow additionally enforces its payment constraints on-chain. The scoped browser key proves ownership for KORD requests, while deposits still need a linked-wallet transaction signature. Deterministic evidence checks and the enabled local model review gate approval by the configured verifier signer. This prototype does not use confidential inference or cross-chain settlement.
+The backend controls the agent accounts' signing keys. General wallet spending checks run on the server; escrow additionally enforces its payment constraints on-chain. The scoped browser key proves ownership for Mandate requests, while deposits still need a linked-wallet transaction signature. Evidence checks are performed by local deterministic specialists and approved by a configured verifier signer. This prototype does not use confidential inference or cross-chain settlement.
 
 These existing testnet contracts are the defaults for a fresh local setup; no contract deployment is needed to follow the walkthrough. Overrides must implement the interfaces described later in this README.
 
 | Role | Deployed testnet address | Configuration / purpose |
 | --- | --- | --- |
-| Verified research escrow | [`mandate-generis-escrow.testnet`](https://testnet.nearblocks.io/address/mandate-generis-escrow.testnet) | `ESCROW_CONTRACT_ID`; creates escrow directives, approves task payments and refunds unused funds. |
+| Verified research escrow | [`mandate-generis-escrow.testnet`](https://testnet.nearblocks.io/address/mandate-generis-escrow.testnet) | `ESCROW_CONTRACT_ID`; creates mandates, approves task payments and refunds unused funds. |
 | NEAR validator staking pool | [`kiln.pool.f863973.m0`](https://testnet.nearblocks.io/address/kiln.pool.f863973.m0) | `NEAR_STAKING_POOL_ID`; standard staking-pool methods and epoch cooldown. |
 | Test USDT staking vault | [`usdt.mandate-live-20261029.testnet`](https://testnet.nearblocks.io/address/usdt.mandate-live-20261029.testnet) | `USDT_STAKING_CONTRACT_ID`; token staking with a 60-second unstaking cooldown. |
 | Test USDT token | [`usdt.fakes.testnet`](https://testnet.nearblocks.io/address/usdt.fakes.testnet) | `TEST_USDT_TOKEN_ID`; six-decimal development token used by wallet operations and pool 57. |
@@ -87,52 +83,46 @@ The default research recipient is [`mandate-generis-researcher.testnet`](https:/
 
 ## Specialist agents without paid APIs
 
-KORD combines public-source retrieval and deterministic evidence checks with an optional local **Qwen3 model through Ollama**. The model plans research, analyzes business evidence and separately reviews its conclusions. Inference uses your computer, with no paid model API. Explicit research fees remain a separate, optional testnet NEAR authorization.
+Mandate runs three separate local specialists under the Orchestrator. No paid model service or API key is used, including when old OpenAI environment variables remain configured. Research fees are optional and use testnet NEAR through verified escrow.
 
 - **Orchestrator:** preserves the requested subject, creates tasks and records the spending directive. Research alone never authorizes a purchase or transfer; fee amounts must be explicit.
-- **Researcher:** uses local model reasoning to identify relevant evidence and search queries, then retrieves public publications and follows useful policy pages and references. Supplied links are optional. Search snippets locate pages and never become evidence. Retrieval remains bounded to 32 requests.
-- **Analyst:** reasons about the business implications, tradeoffs and recommendations from the retrieved evidence. The model selects supplied passage IDs, which KORD resolves to exact original source quotes or published product metadata. The existing deterministic price comparisons and exact quantity arithmetic remain visible.
-- **Verifier:** checks source integrity, freshness, relevance, coverage and arithmetic, then makes a separate local model call to challenge the conclusions and their qualifications. Model approval cannot override failed source checks. Missing evidence or a failed reasoning stage produces a partial report and blocks the research fee. **Refine request** retains the question; each new fee requires explicit authorization.
+- **Researcher:** searches public indexes from a plain-language topic; supplied links are optional. DuckDuckGo and Bing have Google and Wikipedia search fallbacks. Search results only locate pages: their snippets are never evidence. The researcher reads publications, follows relevant documentation, delivery policies and primary references, and performs a second search pass for unresolved requirements. Retrieval is bounded to 38 seconds and 32 requests to fit the serverless runtime.
+- **Analyst:** builds concise briefs with grouped findings and numbered source citations. Repeated passages and speech padding are removed; investment intentions, plans and targets remain labelled. Business comparisons lead with the recommendation and a compact price table, followed by requested delivery, warranty and other commercial terms. Quantity estimates use exact arithmetic. General research does not produce an irrelevant supplier-price table. Exact supporting excerpts remain available in the folded workflow.
+- **Verifier:** checks retrieved-page integrity, observation timestamps, topic relevance, exact passage provenance, publisher independence, requested evidence coverage and arithmetic. Delivery terms can pass when the actual publisher policy is retrieved. An unanswered criterion triggers further discovery before a partial report and a focused clarification. **Refine request** keeps the research goal in the composer; a fee for the new request must be authorized explicitly.
 
-Try **Research and analyze the benefits and risks of solar energy in Nigeria**, **Research the NEAR consensus mechanism**, or **Find three suppliers of 100 office chairs and compare published prices and delivery terms**. No source links are required. Add links when you have particular publications or suppliers in mind. **Compare NEAR and USDT market prices and pool liquidity on Ref Finance** uses free Ref Finance mainnet feeds; it does not trade or price KORD Test USDT. Other NEAR questions use topic research rather than being substituted with token prices.
+Try **Research and analyze the benefits and risks of solar energy in Nigeria**, **Research the NEAR consensus mechanism**, or **Find three suppliers of 100 office chairs and compare published prices and delivery terms**. No source links are required. Add links when you have particular publications or suppliers in mind. **Compare NEAR and USDT market prices and pool liquidity on Ref Finance** uses free Ref Finance mainnet feeds; it does not trade or price Mandate Test USDT. Other NEAR questions use topic research rather than being substituted with token prices.
 
-Public pages may block retrieval or omit facts. KORD tries alternative discovery and published references and asks for missing details such as the delivery destination. Source checks and a model review establish evidence provenance and requested coverage; they do not independently certify a publisher's claims. Qwen3's small CPU model can miss nuance, so unsupported facts remain gaps. With `LOCAL_AI_ENABLED=false`, the original source retrieval and deterministic reports remain available and are labelled accordingly.
+Public pages may block retrieval or omit facts. Mandate tries alternative discovery and published references, returns only supported passages, and asks for details such as a delivery destination or payment corridor when needed. It cannot guarantee that private or unpublished facts exist online. A verified report establishes source provenance and requested coverage, rather than independently certifying every publisher claim. Deterministic extraction and arithmetic run alongside optional local model reasoning.
 
-### Free local model and HTTPS endpoint
+### Local model reasoning
 
-Install [Ollama](https://ollama.com/download), start it with cloud inference disabled, and download the CPU model:
+The optional **Qwen3.5 0.8B** model runs through Ollama on your computer. It plans research, analyzes retrieved passages and reviews its conclusions in three separate structured requests. Passage IDs resolve to exact original text; source-specific numeric checks preserve prices and checked totals. Original source IDs survive evidence selection, which prioritizes relevant passages and independent publishers. URL paths and titles never authorize factual numbers. A failed model or evidence check retains the sourced report and blocks any requested research fee. There is no paid inference API or cloud-model fallback.
+
+Install [Ollama](https://ollama.com/) and [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) for HTTPS hosting, then run:
 
 ```bash
-OLLAMA_NO_CLOUD=1 ollama serve
-# In another terminal:
-ollama pull qwen3:0.6b
 npm run model:start
-```
-
-Local inference is `http://127.0.0.1:11434/api/chat`. Enable it for local app research in `.env`:
-
-```env
-LOCAL_AI_ENABLED=true
-LOCAL_AI_MODEL=qwen3:0.6b
-LOCAL_AI_URL=http://127.0.0.1:11434/api/chat
-```
-
-For Vercel, install the free [cloudflared tool](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/), then run:
-
-```bash
-npm run model:expose
+ollama pull qwen3.5:0.8b
 npm run model:status
 ```
 
-`model:expose` prints the HTTPS `/api/chat` URL and saves it to `.secrets/local-model-endpoint`. The private bearer token is generated in `.secrets/local-model-token`; keep it on the server. Configure `LOCAL_AI_ENABLED=true`, `LOCAL_AI_MODEL=qwen3:0.6b`, `LOCAL_AI_URL=<printed HTTPS URL>` and `LOCAL_AI_TOKEN=<private token>` in Vercel. The proxy allows only the selected local model, bounded inference and a readiness check. Model installation, deletion and filesystem routes are blocked. Research input contains public evidence and checked comparisons; wallet keys, balances and fee authorization do not enter the model.
+Enable local reasoning in your private `.env`:
 
-The computer, Ollama and tunnel must stay running. A restarted free tunnel gets a new URL, which must be updated in Vercel and followed by a deployment. `npm run model:stop` stops services started by the helper. The 300-second Vercel function limit uses Hobby Fluid Compute's supported free limit. CPU inference has no API charge; it uses your existing hardware, electricity and connection. Keep the model endpoint available through hackathon judging.
+```env
+LOCAL_AI_ENABLED=true
+LOCAL_AI_MODEL=qwen3.5:0.8b
+LOCAL_AI_URL=http://127.0.0.1:11434/api/chat
+```
+
+For Vercel, run `npm run model:expose` and configure `LOCAL_AI_ENABLED=true`, `LOCAL_AI_MODEL=qwen3.5:0.8b`, its HTTPS `LOCAL_AI_URL`, and the private `LOCAL_AI_TOKEN` from `.secrets/local-model-token`. Redeploy after changing environment variables. The proxy accepts only the configured model, requires its bearer token and admits one inference request at a time. Wallet, account and fee authorization data stay outside the model requests.
+
+Keep the computer, Ollama, proxy and tunnel running for hosted inference. Restarting the free tunnel changes its URL; update Vercel's `LOCAL_AI_URL` and redeploy. `npm run model:stop` stops the services managed by this workspace. Local model runs are bounded to fit Vercel's 300-second function duration; unavailable sources and incomplete reasoning remain visible in the report.
 
 ### Research fees and verified testnet escrow
 
-There is no automatic research fee. Use **Research solar energy in Nigeria; research fee 0.01 NEAR**, or **Research solar energy in Nigeria, charge a research fee of 0.01 testnet NEAR.** The fee goes to the configured `AGENT_RESEARCHER` (default: `mandate-generis-researcher.testnet`). **; pay 0.01 NEAR for research** also works. To choose a different allowlisted recipient, use **; research fee 0.01 NEAR to researcher.testnet** or **; escrow 0.01 NEAR to researcher.testnet**. Fees above an explicit NEAR budget or per-agent cap are blocked; duplicate fee clauses and fee-only commands are rejected. Dollar budgets and native spending ceilings do not imply a fee. The linked user must authorize wallet spending and allowlist the recipient. By default, the existing configured NEAR server account signs verifier approvals, and the deployed testnet escrow is used; no additional API account is needed. The agent wallet funds a new on-chain escrow directive; the configured verifier then calls the escrow contract's `approve_payment` with the evidence hash. A payment is reported as confirmed only after the contract emits `payment_confirmed`. Limits, recipient and owner checks, durable operation IDs and saved signed hashes protect retries. Missing configuration or incomplete evidence blocks payment.
+There is no automatic research fee. Use **Research solar energy in Nigeria; research fee 0.01 NEAR**, or **Research solar energy in Nigeria, charge a research fee of 0.01 testnet NEAR.** The fee goes to the configured `AGENT_RESEARCHER` (default: `mandate-generis-researcher.testnet`). **; pay 0.01 NEAR for research** also works. To choose a different allowlisted recipient, use **; research fee 0.01 NEAR to researcher.testnet** or **; escrow 0.01 NEAR to researcher.testnet**. Fees above an explicit NEAR budget or per-agent cap are blocked; duplicate fee clauses and fee-only commands are rejected. Dollar budgets and native spending ceilings do not imply a fee. The linked user must authorize wallet spending and allowlist the recipient. By default, the existing configured NEAR server account signs verifier approvals, and the deployed testnet escrow is used; no additional API account is needed. The agent wallet funds a new on-chain mandate; the configured verifier then calls the escrow contract's `approve_payment` with the evidence hash. A payment is reported as confirmed only after the contract emits `payment_confirmed`. Limits, recipient and owner checks, durable operation IDs and saved signed hashes protect retries. Missing configuration or incomplete evidence blocks payment.
 
-Expand the folded workflow to inspect the **Research fee receipt**: the fee amount, NEAR testnet network, wallet owner, recipient, escrow contract, recorded time, operation and escrow directive IDs, and evidence hash. Funding and fee release have separate transaction hashes and explorer links. Funding alone does not prove that the researcher was paid. Pending, failed and unconfirmed releases keep their recorded proof visible without displaying a confirmed fee. Saved conversations restore the same receipt; no transaction is resent by viewing it.
+Expand the folded workflow to inspect the **Research fee receipt**: the fee amount, NEAR testnet network, wallet owner, recipient, escrow contract, recorded time, operation and mandate IDs, and evidence hash. Funding and fee release have separate transaction hashes and explorer links. Funding alone does not prove that the researcher was paid. Pending, failed and unconfirmed releases keep their recorded proof visible without displaying a confirmed fee. Saved conversations restore the same receipt; no transaction is resent by viewing it.
 
 ```env
 ESCROW_CONTRACT_ID=mandate-generis-escrow.testnet
@@ -140,42 +130,42 @@ VERIFIER_ACCOUNT_ID=mandate-generis-verifier.testnet
 VERIFIER_PRIVATE_KEY=ed25519:...
 ```
 
-These optional overrides are blockchain account credentials, not paid API keys. Set both verifier override values together. The owner agent and verifier need free faucet testnet NEAR for gas; this research escrow flow rejects mainnet. An ambiguous transaction pauses spending for reconciliation. If a payout fails, reconcile its receipt, then use **Refund escrow m_<directive-id>** with the exact `mandateId` shown in the saved wallet operation. KORD closes the owner-controlled escrow directive and refunds its remaining funds to the agent wallet. Depositing and releasing escrow are separate transactions.
+These optional overrides are blockchain account credentials, not paid API keys. Set both verifier override values together. The owner agent and verifier need free faucet testnet NEAR for gas; this research escrow flow rejects mainnet. An ambiguous transaction pauses spending for reconciliation. If a payout fails, reconcile its receipt, then use **Refund escrow m_<mandate-id>** with the exact `mandateId` shown in the saved wallet operation. Mandate closes the owner-controlled mandate and refunds its remaining funds to the agent wallet. Depositing and releasing escrow are separate transactions.
 
-Enabled local reasoning and private history require a wallet ownership proof before execution. The signed directive is admitted while fresh; KORD checks that the key remains installed before settling the exact authorized fee, even after a long research job. Key revocation blocks payment. Without local reasoning, public-source research can still finish before fee authorization, returning a report with a blocked payment if ownership was not proven.
+With local reasoning enabled, Mandate verifies wallet ownership before model work starts. A requested fee opens Meteor for fresh signed approval of that directive; the backend rechecks the installed signing key before settlement after long research. Research without an explicit fee never moves funds. Access to private settlement-history audits requires ownership verification before receipt lookups.
 
 **Audit past purchases in the settlement ledger** loads this wallet's latest 50 stored operations and queries their final NEAR receipts. Missing or mismatched receipts are reported. An empty ledger stays empty; no settlements or compliance percentages are seeded or invented.
 
 ## Conversation history
 
-Every sent message and KORD response is saved, including transaction receipts and completed directive results. Past chats appear under **Conversations** in the sidebar. Select any chat to revisit it; refreshing or returning to the workspace restores the last conversation opened for that wallet. **New conversation** starts a separate thread while keeping earlier chats available.
+Every sent message and Mandate response is saved, including transaction receipts and completed mandate results. Past chats appear under **Conversations** in the sidebar. Select any chat to revisit it; refreshing or returning to the workspace restores the last conversation opened for that wallet. **New conversation** starts a separate thread while keeping earlier chats available.
 
-Replies are paired with the exact directive that started them, including when multiple directives finish out of order or the history refreshes during execution. Live agent steps appear in a subtle expandable disclosure above the report. It stays folded by default; expand it to inspect the workflow, verification gaps, source receipts, budgets and settlement. The report and its evidence-linked comparisons remain visible below it.
+Replies are paired with the exact directive that started them, including when multiple mandates finish out of order or the history refreshes during execution. Live agent steps appear in a subtle expandable disclosure above the report. It stays folded by default; expand it to inspect the workflow, verification gaps, source receipts, budgets and settlement. The report and its evidence-linked comparisons remain visible below it.
 
-Chats are backed up in the browser before syncing, and interrupted saves retry when you return or reconnect. Each wallet maintains its own history, with ownership signatures required for reads, saves and deletion. PostgreSQL writes finish before a save is acknowledged on serverless deployments; configure `DATABASE_URL` or `POSTGRES_URL` for cloud history across devices. Local development saves to SQLite. Existing browser settings, authorization keys and conversations migrate to the KORD names on the same origin.
+Chats are backed up in the browser before syncing, and interrupted saves retry when you return or reconnect. Each linked wallet maintains its own history. PostgreSQL writes finish before a save is acknowledged on serverless deployments; configure `DATABASE_URL` or `POSTGRES_URL` for cloud history across devices. Local development saves to the persistent SQLite database. Conversation titles are listed separately from full messages so older chats remain accessible without loading every transcript at startup.
 
-Approved payees are also stored per wallet in PostgreSQL when configured, or in persistent SQLite locally. Additions and removals finish saving before KORD reports success. The initial agent payees are seeded once for each wallet; a removed payee stays removed after refreshing, reconnecting or restarting the server. Database failures block new spending checks instead of trusting a temporary local approval list.
+Approved payees are also stored per wallet in PostgreSQL when configured, or in persistent SQLite locally. Additions and removals finish saving before Mandate reports success. The initial agent payees are seeded once for each wallet; a removed payee stays removed after refreshing, reconnecting or restarting the server. Database failures block new spending checks instead of trusting a temporary local approval list.
 
-## Agent wallet and single-command directives
+## Agent wallet and single-command mandates
 
-Each linked NEAR account has its own KORD-controlled **implicit NEAR account**. Its address is the stable public key encoded as 64 hexadecimal characters. The backend derives and signs with this wallet; the linked wallet signs deposits. Linked balances and agent balances are displayed separately. New profiles receive no synthetic NEAR or USDT credit. Available funds, stake balances, and cooldowns come from final on-chain views.
+Each linked NEAR account has its own Mandate-controlled **implicit NEAR account**. Its address is the stable public key encoded as 64 hexadecimal characters. The backend derives and signs with this wallet; the linked wallet signs deposits. Linked balances and agent balances are displayed separately. New profiles receive no synthetic NEAR or USDT credit. Available funds, stake balances, and cooldowns come from final on-chain views.
 
 - `Deposit 2 NEAR` or `Deposit 5 USDT`: prepare a transfer for the linked wallet to sign. Deposit NEAR first to activate the agent account and pay network gas. USDT storage registration is included when needed.
 - `Withdraw 2 NEAR` or `Withdraw 5 USDT`: send agent funds back to the linked owner.
 - `Swap 0.1 NEAR for USDT` or `Swap 0.1 USDT for NEAR`: trade on Ref Finance testnet, wrapping/unwrapping native NEAR as needed. Quotes come from current pool reserves and include the pool fee, with a default 2% output tolerance. Funds return to the agent wallet. The Swap panel lets you set an explicit minimum output. Prices change with trades and available testnet liquidity.
 - `Send 2 USDT to alice.testnet` / `Pay 1 NEAR to alice.testnet`: pay from the agent wallet after checking the recipient allowlist. Research uses no paid API. Optional, explicitly requested research fees use the user's agent account through verified testnet escrow.
 - `Stake 1 NEAR` / `Stake 5 USDT`: deposit to the configured staking provider.
-- `Unstake 1 NEAR` / `Unstake 5 USDT`: start the provider's unbonding process. While a workspace authorized with Meteor Wallet remains open, KORD checks every 30 seconds and collects available funds. When the workspace is closed, collection resumes on reopening; this is not a background scheduling service. `Claim 1 NEAR` or the **Withdraw unstaked funds** control also collects matured funds.
+- `Unstake 1 NEAR` / `Unstake 5 USDT`: start the provider's unbonding process. While a workspace authorized with Meteor Wallet remains open, Mandate checks every 30 seconds and collects available funds. When the workspace is closed, collection resumes on reopening; this is not a background scheduling service. `Claim 1 NEAR` or the **Withdraw unstaked funds** control also collects matured funds.
 
-Open **Agent wallet** for balances, deposit/withdraw/stake/unstake controls, an explorer address link, and receipt links. KORD retains a **0.02 NEAR gas reserve** and enforces single-transaction caps of 20 NEAR / 100 Test USDT, plus existing mainnet configuration limits. Staked balances cannot be spent until withdrawn.
+Open **Agent wallet** for balances, deposit/withdraw/stake/unstake controls, an explorer address link, and receipt links. Mandate retains a **0.02 NEAR gas reserve** and enforces single-transaction caps of 20 NEAR / 100 Test USDT, plus existing mainnet configuration limits. Staked balances cannot be spent until withdrawn.
 
-Linking an address allows viewing and funding; it does not authorize spending. Choose **Meteor Wallet** or **Authorize agent spending with Meteor Wallet** to connect through Meteor's official SDK, using its web wallet or browser extension. Meteor installs a restricted authentication access key (receiver: the configured treasury, method: `mandate_auth`). The browser keeps that key locally and uses it only to sign account-, route-, body-, and timestamp-bound requests. The backend verifies that the key is installed on the linked account before authorization succeeds, and checks it again for spending requests. Deposits are signed in Meteor and confirmed on-chain. Meteor also supports NEP-413 message proofs for accounts connected without a local authentication key. Disconnecting removes the local authentication key and SDK connection; it does not erase balances or on-chain access keys.
+Linking an address allows viewing and funding; it does not authorize spending. Choose **Meteor Wallet** or **Authorize agent spending with Meteor Wallet** to connect through Meteor's official SDK, using its web wallet or browser extension. Meteor installs a restricted authentication access key (receiver: the configured treasury, method: `mandate_auth`) for account access and history synchronization. Every user-issued send, withdrawal, swap, stake, unstake, claim, escrow refund or nonzero research fee opens a fresh Meteor NEP-413 message approval, even when that key is saved. Payee changes and user-requested recovery actions also require fresh approval. The message includes the exact request and binds its account, route, body, timestamp and nonce; cancellation or a changed wallet prevents submission. The existing agent wallet signs the resulting on-chain transactions. Deposits use Meteor's linked-wallet transaction signature. Collection after an approved unstake retains the original automatic cooldown flow. Disconnecting removes the local authentication key and SDK connection; it does not erase balances or on-chain access keys.
 
-**KORD Test USDT** (`usdt.fakes.testnet`, 6 decimals) is a development token, is not issued by Tether, has no real monetary value, and is not redeemable for dollars.
+**Mandate Test USDT** (`usdt.fakes.testnet`, 6 decimals) is a development token, is not issued by Tether, has no real monetary value, and is not redeemable for dollars.
 
 ### Staking provider setup
 
-Testnet defaults are an active NEAR validator pool and KORD's deployed Test USDT vault. The vault holds transferred tokens, applies a 60-second unstaking cooldown, and distributes rewards only when actual tokens are deposited with `{"action":"fund_rewards"}`. No fixed yield is promised. USDT vault staking is token custody with funded rewards; it does not validate the NEAR network.
+Testnet defaults are an active NEAR validator pool and Mandate's deployed Test USDT vault. The vault holds transferred tokens, applies a 60-second unstaking cooldown, and distributes rewards only when actual tokens are deposited with `{"action":"fund_rewards"}`. No fixed yield is promised. USDT vault staking is token custody with funded rewards; it does not validate the NEAR network.
 
 ```env
 # Keep this master key stable and backed up. Changing it changes every derived agent address.
@@ -191,7 +181,7 @@ The NEAR adapter supports the standard staking-pool interface: `deposit_and_stak
 
 USDT has no native validator staking mechanism. Its adapter requires a compatible token yield/staking contract with this explicit ABI:
 
-- Accept NEP-141 `ft_transfer_call` from the configured USDT token, using `msg: {"action":"stake"}`. Attribute the position to `sender_id` (the agent account) and return the unused token amount. KORD checks the token resolver's final used amount, so a refunded stake is never reported as successful.
+- Accept NEP-141 `ft_transfer_call` from the configured USDT token, using `msg: {"action":"stake"}`. Attribute the position to `sender_id` (the agent account) and return the unused token amount. Mandate checks the token resolver's final used amount, so a refunded stake is never reported as successful.
 - Expose `get_position({account_id}) -> {staked, unstaked, withdrawable}`, with all values as strings in 6-decimal atomic units, including accrued rewards if applicable.
 - Expose `unstake({amount})` and `withdraw({amount})`, with 1 yoctoNEAR attached. Withdrawal must transfer actual USDT back to the caller, and complete its transfer promise before returning.
 
@@ -257,7 +247,7 @@ DEX swaps save their quote, minimum output, wrapping step and actual received ou
 
 Pre-fund and authorize the agent wallet, then record one complete research-to-payment loop from the [judge walkthrough](#core-walkthrough-do-x--see-y). Show the directive, cited result, verification decision, escrow receipt and recipient in the explorer. Include a blocked unapproved-recipient request or `Withdraw 21 NEAR`, then one optional swap or staking command. Rejected commands have no confirmed on-chain receipt; inspect the rejection in the conversation rather than claiming it is a paid ledger entry.
 
-For the hackathon's public demo post, state that KORD was built at NEAR HACKATHON, include **@NEARProtocol** and **#NEARHackathon**, attach the recording and link the public repository and hosted demo. Keep the user action and its visible result central. A local-only demo needs video so judges can inspect the behavior without access to your machine.
+For the hackathon's public demo post, state that Mandate was built at NEAR HACKATHON, include **@NEARProtocol** and **#NEARHackathon**, attach the recording and link the public repository and hosted demo. Keep the user action and its visible result central. A local-only demo needs video so judges can inspect the behavior without access to your machine.
 
 ---
 
@@ -295,7 +285,7 @@ NEAR_NETWORK=testnet
 NEAR_RPC_URL=https://test.rpc.fastnear.com
 NEAR_ACCOUNT_ID=your-treasury.testnet
 NEAR_PRIVATE_KEY=ed25519:...
-KORD_DB=kord.db
+MANDATE_DB=mandate.db
 ALLOW_MAINNET=false
 ESCROW_CONTRACT_ID=mandate-generis-escrow.testnet
 AGENT_RESEARCHER=mandate-generis-researcher.testnet
@@ -310,7 +300,7 @@ The account and secret-key values above must be replaced locally; the remaining 
 | `NEAR_RPC_URL` | Optional; testnet defaults to `https://test.rpc.fastnear.com`. | Used for account/key queries, balances, contract views and transaction confirmation. |
 | `NEAR_ACCOUNT_ID`, `NEAR_PRIVATE_KEY` | Required to start the server; use a real dedicated testnet account and its installed Ed25519 key. | Supplies the default verifier signer and fallback agent-wallet derivation seed. The template's placeholder key cannot approve fees. |
 | `AGENT_WALLET_MASTER_KEY` | Optional; defaults to `NEAR_PRIVATE_KEY`. Use a stable private server secret when configured. | Derives the agent account for each linked owner. Preserve it across restarts; changing the seed changes those addresses. |
-| `KORD_DB` | Optional; `kord.db` for fresh local installs. Existing database paths and the previous environment setting remain supported. | Persistent SQLite conversation, approval and receipt storage. Its parent directory must be writable. |
+| `MANDATE_DB` | Optional; `mandate.db` locally. | Persistent SQLite conversation, approval and receipt storage. Its parent directory must be writable. |
 | `DATABASE_URL` or `POSTGRES_URL` | Optional locally; configure one for durable Vercel/serverless storage. `DATABASE_URL` takes precedence. | PostgreSQL persists conversations, approvals and operations across instances. Local runs work with SQLite alone. |
 | `ESCROW_CONTRACT_ID` | Optional override; defaults to `mandate-generis-escrow.testnet`. | Research fee funding, approval and refund contract. |
 | `AGENT_RESEARCHER` | Optional override; defaults to `mandate-generis-researcher.testnet`. | Receives the explicit research fee and must be on the owner's approved-payee list. |
@@ -329,7 +319,7 @@ Use the existing contract addresses for the judge walkthrough. Deploying a custo
 npx tsx src/server.ts
 ```
 
-Expected startup output: `[KORD] Running at http://localhost:3000`. Open that URL in a current browser and follow the [judge guide](#judge-guide). Port 3000 must be available; `VERCEL` should be unset for this local server command. On Vercel, the exported request handler is used instead of starting a listener, and the deployment builds the Meteor bundle.
+Expected startup output: `[Mandate] Running at http://localhost:3000`. Open that URL in a current browser and follow the [judge guide](#judge-guide). Port 3000 must be available; `VERCEL` should be unset for this local server command. On Vercel, the exported request handler is used instead of starting a listener, and the deployment builds the Meteor bundle.
 
 In another terminal, this configuration check requires no wallet signature or transaction:
 
@@ -364,7 +354,7 @@ Checks on October 29, 2026 used an isolated faucet-funded account. They exercise
 | `Stake 0.1 NEAR`, then `Unstake 0.1 NEAR` | Validator stake and unstake confirmed; withdrawal remains subject to epoch cooldown | [Stake](https://testnet.nearblocks.io/txns/8Q7rokBCRbTPGuVM95C9Z656vMDz4JGQpEHkZsk46cot), [unstake](https://testnet.nearblocks.io/txns/28egx2UxSU6t8uh9oZdeLNi8FmhFinD1wS6FLNc4PERQ) |
 | `Stake 5 USDT`, `Unstake 5 USDT`, then `Claim 5 USDT` | Full 5 Test USDT principal returned after the vault cooldown | [Stake](https://testnet.nearblocks.io/txns/618BnrTHubj9MmjhRqUddKLNwR7DZZEFEkEE3X85jXK3), [unstake](https://testnet.nearblocks.io/txns/Dy39yZdE5ak2dStqQMyttceSLLhT1xsboR4ZuR5Eh5sZ), [withdrawal](https://testnet.nearblocks.io/txns/J9SHqX7yVjtUGdp3Ndbr6WEPbSN5UM7HAvnEfdCT732z) |
 | `Swap 0.1 NEAR for USDT` | Ref Finance delivered 0.474829 Test USDT; receipt output matched the agent balance increment | [DEX swap](https://testnet.nearblocks.io/txns/F5yzBy3tBd5MsM561nJAvNFCPQEABhwQN65wFRB7eZEf) |
-| `Swap 0.1 USDT for NEAR` | Ref Finance delivered 0.021753018819680804033633 wrapped NEAR, then KORD withdrew it as native NEAR | [DEX swap](https://testnet.nearblocks.io/txns/9McpDHJZjNL9qdk7GVwTv83egnSEwrhj6WH6bjjuG9C3), [native withdrawal](https://testnet.nearblocks.io/txns/4AtJ5LKoQRBChdEJZLCsbwFzeJ1CmXt8R6oaNjZF5b8i) |
+| `Swap 0.1 USDT for NEAR` | Ref Finance delivered 0.021753018819680804033633 wrapped NEAR, then Mandate withdrew it as native NEAR | [DEX swap](https://testnet.nearblocks.io/txns/9McpDHJZjNL9qdk7GVwTv83egnSEwrhj6WH6bjjuG9C3), [native withdrawal](https://testnet.nearblocks.io/txns/4AtJ5LKoQRBChdEJZLCsbwFzeJ1CmXt8R6oaNjZF5b8i) |
 
 The deployed vault source is in `staking-contract/`: [deployment receipt](https://testnet.nearblocks.io/txns/DFxCh5QBfs42fEbX8447Z2f9GGoVgEFhGQFFFwFjL5m8). Ref Finance liquidity was funded on-chain: [liquidity receipt](https://testnet.nearblocks.io/txns/Az2oBebT2zPj9kPzQPhG1zXhNd5e4SEcDLCEARTdyPBz). These are recorded historical checks, separate from the commands a judge runs against current providers. This prototype uses local deterministic specialists with free public research and actual testnet settlement.
 

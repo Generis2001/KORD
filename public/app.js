@@ -1,12 +1,12 @@
 // --- Multi-User & Wallet State ---
-let connectedWallet = localStorage.getItem('kord_connected_wallet') || null;
+let connectedWallet = localStorage.getItem('mandate_connected_wallet') || null;
 let currentAccount = connectedWallet;
 let activeConversationId = null;
 const conversationHistories = new Map();
 let conversationAccount;
 let conversationNavigation = 0;
 let conversationMessages = [];
-const pendingDirectives = new Map();
+const pendingMandates = new Map();
 
 // DOM Elements
 const sidebar = document.getElementById('sidebar');
@@ -96,7 +96,7 @@ const toastNotify = document.getElementById('toastNotify');
 function getApiHeaders() {
   return {
     'Content-Type': 'application/json',
-    ...(currentAccount ? { 'x-kord-account': currentAccount } : {})
+    ...(currentAccount ? { 'x-mandate-account': currentAccount } : {})
   };
 }
 
@@ -172,7 +172,7 @@ async function loadTreasuryBalance() {
   if (!connectedWallet) return;
   const owner = connectedWallet;
   try {
-    const res = await kordWallet.fetch('/api/wallet', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/wallet', { headers: getApiHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not refresh wallet balances.');
     if (connectedWallet !== owner) return;
@@ -188,7 +188,7 @@ async function loadTreasuryBalance() {
       button.addEventListener('click', async () => {
         button.disabled = true;
         try {
-          const res = await kordWallet.fetch('/api/wallet/' + (op.status === 'funding_confirmed' ? 'resume' : 'reconcile'), { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: op.id }) });
+          const res = await mandateWallet.fetch('/api/wallet/' + (op.status === 'funding_confirmed' ? 'resume' : 'reconcile'), { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: op.id }) });
           const result = await res.json();
           if (!res.ok) throw new Error(result.error);
           document.getElementById('agentWalletResult').textContent = 'Transaction status: ' + result.operation.status.replaceAll('_', ' ');
@@ -209,18 +209,18 @@ async function loadTreasuryBalance() {
     address.textContent = data.accountId;
     address.href = 'https://' + (data.network === 'testnet' ? 'testnet.' : '') + 'nearblocks.io/address/' + data.accountId;
     const authorization = document.getElementById('authorizeAgentWalletBtn');
-    authorization.style.display = kordWallet.authorized(owner) ? 'none' : 'block';
+    authorization.style.display = mandateWallet.authorized(owner) ? 'none' : 'block';
     if (swapDestinationWallet) swapDestinationWallet.value = data.accountId;
     updateAgentAction();
-    // One unstake directive authorizes collection after the cooldown; no second command is needed.
-    if (!collectingUnstaked && kordWallet.authorized(owner)) {
+    // One unstake mandate authorizes collection after the cooldown; no second command is needed.
+    if (!collectingUnstaked && mandateWallet.authorized(owner)) {
       const toCollect = ['NEAR', 'USDT'].filter(asset => data.staking[asset].available && data.operations.some(op => op.action === 'unstake' && op.asset === asset && op.status === 'confirmed'));
       if (toCollect.length) {
         collectingUnstaked = true;
         try {
           for (const asset of toCollect) {
             if (connectedWallet !== owner) break;
-            const result = await kordWallet.fetch('/api/wallet/execute', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: 'claim-' + crypto.randomUUID(), action: 'claim', asset, amount: data.staking[asset].withdrawable }) });
+            const result = await mandateWallet.fetch('/api/wallet/execute', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: 'claim-' + crypto.randomUUID(), action: 'claim', asset, amount: data.staking[asset].withdrawable }), continuingUnstake: true });
             const receipt = await result.json();
             if (result.ok) showToast('Unstaked ' + asset + ' returned to your agent wallet');
             else throw new Error(receipt.error || receipt.operation?.error || 'Unstaked withdrawal needs review.');
@@ -242,14 +242,14 @@ async function checkWalletCallback() {
   if (accountId) {
     connectedWallet = accountId;
     currentAccount = accountId;
-    localStorage.setItem('kord_connected_wallet', accountId);
+    localStorage.setItem('mandate_connected_wallet', accountId);
     updateWalletUI();
   }
   const hashes = params.get('transactionHashes');
   if (hashes && connectedWallet) {
     for (const txHash of hashes.split(',')) {
       try {
-        const res = await kordWallet.fetch('/api/wallet/deposit/confirm', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ txHash }) });
+        const res = await mandateWallet.fetch('/api/wallet/deposit/confirm', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ txHash }) });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         showToast('Agent wallet deposit confirmed');
@@ -270,7 +270,7 @@ function updateAgentAction() {
   const explanations = {
     deposit: 'Sign the deposit in your linked wallet. Deposit NEAR first to activate the agent wallet and cover gas.',
     withdraw: 'Send funds from your agent wallet back to ' + (connectedWallet || 'your linked wallet') + '.',
-    stake: 'Stake from your agent wallet with KORD’s staking provider.',
+    stake: 'Stake from your agent wallet with Mandate’s staking provider.',
     unstake: 'Start unstaking. Funds are collected after the provider cooldown while your authorized workspace is open.',
     claim: 'Withdraw funds whose staking cooldown has finished into your agent wallet.'
   };
@@ -279,10 +279,10 @@ function updateAgentAction() {
     ? asset + ' staking will be available after provider setup.' : explanations[action];
 }
 async function depositToAgent(amount, asset = 'NEAR') {
-  const res = await kordWallet.fetch('/api/wallet/deposit', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ amount: String(amount), asset }) });
+  const res = await mandateWallet.fetch('/api/wallet/deposit', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ amount: String(amount), asset }) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
-  return kordWallet.signDeposit(data);
+  return mandateWallet.signDeposit(data);
 }
 window.sendOnchainNear = amount => depositToAgent(amount).catch(err => showToast(err.message));
 window.fundDirectly = window.sendOnchainNear;
@@ -299,9 +299,9 @@ async function authorizeWithMeteor(expectedAccount = null) {
   walletModal.classList.remove('open');
   fundModal.classList.remove('open');
   try {
-    connectedWallet = await kordWallet.authorize(expectedAccount);
+    connectedWallet = await mandateWallet.authorize(expectedAccount);
     currentAccount = connectedWallet;
-    localStorage.setItem('kord_connected_wallet', connectedWallet);
+    localStorage.setItem('mandate_connected_wallet', connectedWallet);
     updateWalletUI();
     walletModal.classList.remove('open');
     button.style.display = 'none';
@@ -337,7 +337,7 @@ if (confirmFundBtn) confirmFundBtn.addEventListener('click', async () => {
   try {
     if (action === 'deposit') await depositToAgent(amount, asset);
     else {
-      const res = await kordWallet.fetch('/api/wallet/execute', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: crypto.randomUUID(), action, asset, amount }) });
+      const res = await mandateWallet.fetch('/api/wallet/execute', { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ id: crypto.randomUUID(), action, asset, amount }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.operation?.error || 'Transaction needs review.');
       status.innerHTML = escapeHtml(action === 'unstake' ? 'Unstaking started. Collection follows the provider cooldown.' : 'Transaction confirmed.') +
@@ -362,9 +362,9 @@ if (closeWalletModal) {
 
 if (disconnectWalletBtn) {
   disconnectWalletBtn.addEventListener('click', () => {
-    kordWallet.disconnect(connectedWallet).catch(err => console.warn('Meteor disconnect:', err));
+    mandateWallet.disconnect(connectedWallet).catch(err => console.warn('Meteor disconnect:', err));
     connectedWallet = null;
-    localStorage.removeItem('kord_connected_wallet');
+    localStorage.removeItem('mandate_connected_wallet');
     updateWalletUI();
     showToast('Wallet disconnected');
   });
@@ -380,8 +380,8 @@ if (confirmManualWalletBtn) {
     if (!/^[a-f0-9]{64}$/.test(linkedId) && !/^(?=.{2,64}$)[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(linkedId)) { showToast('Enter a valid NEAR account ID'); return; }
     connectedWallet = linkedId;
     currentAccount = connectedWallet;
-    localStorage.setItem('kord_connected_wallet', connectedWallet);
-    localStorage.setItem('kord_current_account', currentAccount);
+    localStorage.setItem('mandate_connected_wallet', connectedWallet);
+    localStorage.setItem('mandate_current_account', currentAccount);
     manualWalletInput.value = '';
     updateWalletUI();
     walletModal.classList.remove('open');
@@ -429,7 +429,7 @@ if (closeAccountModal) {
 // Load Accounts List
 async function loadAccountsList() {
   try {
-    const res = await kordWallet.fetch('/api/accounts', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/accounts', { headers: getApiHeaders() });
     const data = await res.json();
     if (data && data.users) {
       accountsListContainer.innerHTML = data.users.map(u => {
@@ -464,7 +464,7 @@ window.deleteAccount = async function(e, accId) {
   }
   if (!confirm('Remove account ' + accId + '?')) return;
   try {
-    await kordWallet.fetch('/api/accounts', {
+    await mandateWallet.fetch('/api/accounts', {
       method: 'DELETE',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId: accId })
@@ -483,8 +483,8 @@ window.switchAccount = function(newAccId) {
   }
   currentAccount = newAccId.trim().toLowerCase();
   connectedWallet = currentAccount;
-  localStorage.setItem('kord_current_account', currentAccount);
-  localStorage.setItem('kord_connected_wallet', currentAccount);
+  localStorage.setItem('mandate_current_account', currentAccount);
+  localStorage.setItem('mandate_connected_wallet', currentAccount);
   updateAccountBadgeUI();
   updateWalletUI();
   accountModal.classList.remove('open');
@@ -504,7 +504,7 @@ createAccountBtn.addEventListener('click', async () => {
   try {
     createAccountBtn.disabled = true;
     createAccountBtn.textContent = 'Creating...';
-    const res = await kordWallet.fetch('/api/accounts', {
+    const res = await mandateWallet.fetch('/api/accounts', {
       method: 'POST',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId: formattedId, initialBalance: 15.00 })
@@ -533,7 +533,7 @@ generateRandomAccountBtn.addEventListener('click', () => {
 async function loadAllowlist() {
   allowlistItemsContainer.innerHTML = '<div class="loading-spinner">Loading approved accounts...</div>';
   try {
-    const res = await kordWallet.fetch('/api/allowlist', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/allowlist', { headers: getApiHeaders() });
     const list = await res.json();
     if (!res.ok || !Array.isArray(list)) throw new Error(list.error || 'Approved payees could not be loaded.');
     if (allowlistBadge) allowlistBadge.textContent = list.length;
@@ -563,7 +563,7 @@ addAccountBtn.addEventListener('click', async () => {
   addAccountBtn.disabled = true;
   addAccountBtn.textContent = 'Adding...';
   try {
-    const res = await kordWallet.fetch('/api/allowlist', {
+    const res = await mandateWallet.fetch('/api/allowlist', {
       method: 'POST',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId: acc, label })
@@ -587,7 +587,7 @@ addAccountBtn.addEventListener('click', async () => {
 window.removeAllowlist = async function(accountId) {
   if (!confirm('Remove ' + accountId + ' from approved allowlist?')) return;
   try {
-    const res = await kordWallet.fetch('/api/allowlist', {
+    const res = await mandateWallet.fetch('/api/allowlist', {
       method: 'DELETE',
       headers: getApiHeaders(),
       body: JSON.stringify({ accountId })
@@ -605,7 +605,7 @@ window.removeAllowlist = async function(accountId) {
 async function loadLedger() {
   ledgerTableBody.innerHTML = '<tr><td colspan="7" class="loading-td">Querying settlement records...</td></tr>';
   try {
-    const res = await kordWallet.fetch('/api/ledger', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/ledger', { headers: getApiHeaders() });
     const records = await res.json();
     if (!records || records.length === 0) {
       ledgerTableBody.innerHTML = `
@@ -613,7 +613,7 @@ async function loadLedger() {
           <td colspan="7" class="empty-td" style="padding:24px; text-align:center; color:var(--text-muted);">
             No settlement disbursements recorded for <code>${escapeHtml(currentAccount)}</code> yet.<br>
             <span style="font-size:12px; color:var(--text-muted); margin-top:4px; display:inline-block;">
-              Run a KORD directive or send NEAR to see live verified settlements.
+              Run an autonomous mandate or send NEAR to see live verified settlements.
             </span>
           </td>
         </tr>
@@ -658,7 +658,7 @@ function historyFor(account) {
   if (!account) return null;
   if (!conversationHistories.has(account)) {
     conversationHistories.set(account, new ConversationHistory(account, {
-      request: (url, options) => kordWallet.fetch(url, options),
+      request: (url, options) => mandateWallet.fetch(url, options),
       onChange: () => { if (currentAccount === account) renderConversationsList(); },
       onError: message => { if (currentAccount === account) document.getElementById('conversationSyncStatus').textContent = message; }
     }));
@@ -695,8 +695,8 @@ function renderConversationsList() {
     row.className = 'history-item' + (record.id === activeConversationId ? ' active' : '');
     const open = document.createElement('button');
     open.className = 'history-open-btn';
-    open.textContent = record.title || 'KORD Session';
-    open.title = record.title || 'KORD Session';
+    open.textContent = record.title || 'Mandate Session';
+    open.title = record.title || 'Mandate Session';
     open.style.overflow = 'hidden'; open.style.textOverflow = 'ellipsis'; open.style.whiteSpace = 'nowrap';
     if (record.id === activeConversationId) open.setAttribute('aria-current', 'true');
     open.addEventListener('click', () => switchConversation(record.id));
@@ -779,7 +779,7 @@ function renderConversationMessages() {
       appendAssistantLoading(id);
       renderAssistantResponse(id, message.data, false, { historical: true, text: directive });
     }
-    if (message.role === 'user' && message.requestId && pendingDirectives.has(message.requestId)) appendAssistantLoading('loading-' + message.requestId, pendingDirectives.get(message.requestId));
+    if (message.role === 'user' && message.requestId && pendingMandates.has(message.requestId)) appendAssistantLoading('loading-' + message.requestId, pendingMandates.get(message.requestId));
   }
   chatContainer.scrollTop = chatContainer.scrollHeight;
 }
@@ -829,8 +829,8 @@ async function handleSubmit() {
     return;
   }
 
-  const conversation = { account: currentAccount, id: activeConversationId, requestId: 'kord_' + crypto.randomUUID(), text, steps: [] };
-  pendingDirectives.set(conversation.requestId, conversation);
+  const conversation = { account: currentAccount, id: activeConversationId, requestId: 'mandate_' + crypto.randomUUID(), text, steps: [] };
+  pendingMandates.set(conversation.requestId, conversation);
   heroScreen.style.display = 'none';
   appendUserMessage(text, true, conversation.requestId);
   promptInput.value = '';
@@ -841,42 +841,42 @@ async function handleSubmit() {
   chatContainer.scrollTop = chatContainer.scrollHeight;
 
   try {
-    const res = await kordWallet.fetch('/api/chat', {
+    const res = await mandateWallet.fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-kord-account': conversation.account },
+      headers: { 'Content-Type': 'application/json', 'x-mandate-account': conversation.account },
       body: JSON.stringify({ message: text, id: conversation.requestId, stream: true })
     });
-    const data = await KordChat.read(res, conversation, step => {
+    const data = await MandateChat.read(res, conversation, step => {
       conversation.steps.push(step);
-      if (conversation.account === currentAccount && conversation.id === activeConversationId) updateKordProgress(placeholderId, conversation);
+      if (conversation.account === currentAccount && conversation.id === activeConversationId) updateMandateProgress(placeholderId, conversation);
     });
-    pendingDirectives.delete(conversation.requestId);
+    pendingMandates.delete(conversation.requestId);
     renderAssistantResponse(placeholderId, data, true, conversation);
     if (conversation.account !== currentAccount || conversation.id !== activeConversationId) return;
     if (data.type === 'wallet_deposit' && data.deposit) {
       const button = document.createElement('button');
       button.className = 'btn-primary';
       button.textContent = 'Sign deposit in wallet ↗';
-      button.addEventListener('click', async () => { try { await kordWallet.signDeposit(data.deposit); await loadTreasuryBalance(); } catch (err) { showToast(err.message); } });
+      button.addEventListener('click', async () => { try { await mandateWallet.signDeposit(data.deposit); await loadTreasuryBalance(); } catch (err) { showToast(err.message); } });
       document.getElementById(placeholderId)?.querySelector('.message-content')?.appendChild(button);
     }
     if (data && data.balanceNear !== undefined) {
       const sidebarNear = document.getElementById('sidebarNearBalance');
       if (sidebarNear) sidebarNear.textContent = Number(data.balanceNear).toFixed(2);
-      if (currentAccount) localStorage.setItem('kord_bal_near_' + currentAccount, Number(data.balanceNear).toFixed(2));
+      if (currentAccount) localStorage.setItem('mandate_bal_near_' + currentAccount, Number(data.balanceNear).toFixed(2));
     }
     if (data && data.userUsdt !== undefined) {
       const sidebarUsdt = document.getElementById('sidebarUsdtBalance');
       if (sidebarUsdt) sidebarUsdt.textContent = Number(data.userUsdt).toFixed(2);
-      if (currentAccount) localStorage.setItem('kord_bal_usdt_' + currentAccount, Number(data.userUsdt).toFixed(2));
+      if (currentAccount) localStorage.setItem('mandate_bal_usdt_' + currentAccount, Number(data.userUsdt).toFixed(2));
     }
     loadTreasuryBalance();
     loadLedger();
   } catch (err) {
-    pendingDirectives.delete(conversation.requestId);
+    pendingMandates.delete(conversation.requestId);
     renderAssistantResponse(placeholderId, {
       type: 'text',
-      message: '❌ Error communicating with KORD: ' + err.message
+      message: '❌ Error communicating with Mandate: ' + err.message
     }, true, conversation);
   }
 }
@@ -891,43 +891,43 @@ function appendUserMessage(text, record = true, requestId = undefined) {
   messagesStream.appendChild(row);
 }
 
-// KORD loading indicator
+// Mandate loading indicator
 function appendAssistantLoading(id, request = null) {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   row.id = id;
   row.innerHTML = `
     <div class="assistant-avatar">
-      <svg class="kord-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/kord-mark.svg#mark"/></svg>
+      <svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg>
     </div>
     <div class="message-content">
-      <div class="kord-loader" role="status">
+      <div class="mandate-loader" role="status">
         <span class="loader-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span>Working on your KORD directive…</span>
+        <span>Working on your mandate…</span>
       </div>
     </div>
   `;
   messagesStream.appendChild(row);
-  if (request) updateKordProgress(id, request);
+  if (request) updateMandateProgress(id, request);
 }
 
 function runDisclosure(label, body, running = false, open = false) {
-  return `<details class="kord-run${running ? ' is-running' : ''}"${open ? ' open' : ''}>
+  return `<details class="mandate-run${running ? ' is-running' : ''}"${open ? ' open' : ''}>
     <summary><svg class="run-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg><span class="run-label"${running ? ' role="status"' : ''}>${escapeHtml(label)}</span></summary>
-    <div class="kord-run-details">${body}</div></details>`;
+    <div class="mandate-run-details">${body}</div></details>`;
 }
 
 function runSteps(steps) {
   return `<ol class="run-steps">${steps.map(step => `<li><span>${escapeHtml(step.phase)}</span><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></li>`).join('')}</ol>`;
 }
 
-function updateKordProgress(id, request) {
+function updateMandateProgress(id, request) {
   const content = document.getElementById(id)?.querySelector('.message-content');
   if (!content) return;
   const open = content.querySelector('details')?.open || false;
   const last = request.steps.at(-1);
   const next = { Orchestrator: 'Researching sources…', Researcher: 'Comparing findings…', Analyst: 'Checking evidence…', Verifier: 'Finishing your report…' };
-  const label = last?.activity || next[last?.phase] || 'Working on your KORD directive…';
+  const label = last?.activity || next[last?.phase] || 'Working on your mandate…';
   content.innerHTML = runDisclosure(label, `<h4>Agent workflow</h4>${request.steps.length ? runSteps(request.steps) : '<p>Waiting for the workflow to start.</p>'}`, true, open);
 }
 
@@ -942,16 +942,16 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
   const el = document.getElementById(id);
   if (!el) { if (record) renderConversationMessages(); return; }
 
-  const kordAvatar = `
+  const mandateAvatar = `
     <div class="assistant-avatar">
-      <svg class="kord-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/kord-mark.svg#mark"/></svg>
+      <svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg>
     </div>
   `;
 
   // 1. Payment Confirmed (Deduction)
   if (data.type === 'payment_confirmed') {
     el.innerHTML = `
-      ${kordAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <p>${escapeHtml(data.message)}</p>
         <div class="receipt-card">
@@ -991,7 +991,7 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
   // 2. Treasury Funded
   if (data.type === 'treasury_funded') {
     el.innerHTML = `
-      ${kordAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <div class="receipt-card">
           <div class="receipt-top">
@@ -1031,7 +1031,7 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
     `).join('');
 
     el.innerHTML = `
-      ${kordAvatar}
+      ${mandateAvatar}
       <div class="message-content">
         <p>${escapeHtml(data.message)}</p>
         <div class="receipt-card">
@@ -1050,11 +1050,10 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
   // 4. Greeting or Standard Text
   if (data.type === 'greeting' || data.type === 'text' || data.type === 'wallet_deposit' || data.type === 'allowlist_warning' || data.type === 'security_notice' || data.type === 'payment_failed' || data.error) {
     if (record && data.treasuryBalance) updateTreasuryUI(data.treasuryBalance);
-    const message = String(data.message || data.error || '').replace(/(?<![\w./:@-])Mandate(?![\w./:@-])/g, 'KORD');
     el.innerHTML = `
-      ${kordAvatar}
+      ${mandateAvatar}
       <div class="message-content">
-        <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(message)}</div>
+        <div style="font-size:14.5px; line-height:1.6; white-space:pre-wrap;">${formatMarkdown(data.message || data.error)}</div>
       </div>
     `;
     return;
@@ -1063,13 +1062,13 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
   // Research receipts always render the recorded verification and settlement state.
   if (data.mandateResult) {
     const result = data.mandateResult;
-    const mismatchedHistory = conversation?.historical && conversation.text && !KordChat.matchesGoal(result.mandate, conversation.text);
+    const mismatchedHistory = conversation?.historical && conversation.text && !MandateChat.matchesGoal(result.mandate, conversation.text);
     const currentWorkflow = Array.isArray(result.deliverable.sources);
     const passed = currentWorkflow && result.deliverable.verification.passed;
     const payout = result.payout;
     const sources = result.deliverable.sources || [];
     const tasks = result.delegation.map(task => `<li><strong>${escapeHtml(task.role)}</strong> · ${escapeHtml(task.status)}<br>${escapeHtml(task.description)}</li>`).join('');
-    const problems = currentWorkflow ? result.deliverable.verification.problems : ['This historical report predates live source verification. Run a new KORD directive to check its claims.'];
+    const problems = currentWorkflow ? result.deliverable.verification.problems : ['This historical report predates live source verification. Run a new mandate to check its claims.'];
     const issues = problems.map(problem => `<li>${escapeHtml(problem)}</li>`).join('');
     let settlement = 'No research fee requested. No wallet funds were spent.';
     if (payout.status === 'confirmed' && payout.onchain && payout.txHash) {
@@ -1078,10 +1077,10 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
       settlement = `Escrow ${escapeHtml(payout.status)}. ${payout.reasons.map(reason => escapeHtml(reason.message)).join(' ')}${payout.explorerUrl ? ` <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View transaction ↗</a>` : ''}`;
     }
     if (!currentWorkflow) settlement = 'Historical settlement record. Source verification is unavailable for this report.' + (payout.explorerUrl ? ` <a href="${escapeHtml(payout.explorerUrl)}" target="_blank" rel="noopener noreferrer">View recorded receipt ↗</a>` : '');
-    const label = mismatchedHistory ? 'Saved report for another directive' : !currentWorkflow ? 'Historical research report' : result.mandate.status === 'completed' ? 'KORD completed' : 'KORD needs more evidence or settlement review';
-    const open = el.querySelector('.kord-run')?.open || false;
+    const label = mismatchedHistory ? 'Saved report for another directive' : !currentWorkflow ? 'Historical research report' : result.mandate.status === 'completed' ? 'Mandate completed' : 'Mandate needs more evidence or settlement review';
+    const open = el.querySelector('.mandate-run')?.open || false;
     const details = `<p class="run-directive">${escapeHtml(result.mandate.goal)}</p>
-      ${currentWorkflow ? KordResearch.feeReceipt(payout, result.budgetState.totalBudget) : '<h4>Settlement</h4><p>' + settlement + '</p>'}
+      ${currentWorkflow ? MandateResearch.feeReceipt(payout, result.budgetState.totalBudget) : '<h4>Settlement</h4><p>' + settlement + '</p>'}
       <p>${escapeHtml(result.mandate.restrictions?.[0] || 'Purchases require explicit authorization.')}</p>
       <h4>Agent workflow</h4>${result.steps?.length ? runSteps(result.steps) : `<ol>${tasks}</ol>`}
       ${result.deliverable.searches?.length ? `<h4>Online discovery</h4><ul>${result.deliverable.searches.map(search => `<li>${escapeHtml(search.provider)} · ${escapeHtml(search.query)} · ${search.found} candidate links${search.error ? ' · ' + escapeHtml(search.error) : ''}</li>`).join('')}</ul>` : ''}
@@ -1090,9 +1089,9 @@ function renderAssistantResponse(id, data, record = true, conversation = null) {
       <p>These checks establish source provenance and coverage. Publisher claims, announcements and targets are not independently certified.</p>
       <h4>Source receipts</h4>${sources.length ? sources.map(source => `<div class="run-source"><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a><br><small>Retrieved ${escapeHtml(source.retrievedAt)} · SHA-256 ${escapeHtml(source.hash.slice(0, 16))}…</small>${source.findings?.length ? [...new Set(source.findings.map(finding => finding.excerpt))].map(excerpt => `<blockquote>${escapeHtml(excerpt)}</blockquote>`).join('') : source.excerpt ? `<span>${escapeHtml(source.excerpt)}</span>` : ''}</div>`).join('') : '<p>No source evidence was retrieved.</p>'}
       ${mismatchedHistory ? `<h4>Recorded report</h4><div class="deliverable-body">${renderMarkdownRich(result.deliverable.preview)}</div>` : ''}`;
-    el.innerHTML = `${kordAvatar}<div class="message-content">
+    el.innerHTML = `${mandateAvatar}<div class="message-content">
       ${runDisclosure(label, details, false, open)}
-      <div class="kord-answer deliverable-body">${mismatchedHistory ? '<p>This saved response belongs to another directive. Its original report is available in the disclosure above. Send your current request again for a fresh result.</p>' : renderMarkdownRich(result.deliverable.preview)}</div>
+      <div class="mandate-answer deliverable-body">${mismatchedHistory ? '<p>This saved response belongs to another directive. Its original report is available in the disclosure above. Send your current request again for a fresh result.</p>' : renderMarkdownRich(result.deliverable.preview)}</div>
       ${!mismatchedHistory && result.deliverable.followUpQuestions?.length ? '<button class="refine-research">Refine request ↗</button>' : ''}
     </div>`;
     el.querySelector('.refine-research')?.addEventListener('click', () => {
@@ -1270,7 +1269,7 @@ async function updateSwapQuote() {
   }
   try {
     const dest = swapDestinationWallet ? encodeURIComponent(swapDestinationWallet.value.trim()) : '';
-    const res = await kordWallet.fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
+    const res = await mandateWallet.fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
     const data = await res.json();
     if (version !== swapQuoteVersion) return;
     if (!res.ok || data.error) throw new Error(data.error || 'Live quote unavailable.');
@@ -1290,7 +1289,7 @@ async function updateSwapQuote() {
 async function loadSwapHistory() {
   if (!swapHistoryTableBody) return;
   try {
-    const res = await kordWallet.fetch('/api/swap/history', { headers: getApiHeaders() });
+    const res = await mandateWallet.fetch('/api/swap/history', { headers: getApiHeaders() });
     const data = await res.json();
     if (data && Array.isArray(data.swaps) && data.swaps.length > 0) {
       swapHistoryTableBody.innerHTML = data.swaps.map(s => {
@@ -1372,7 +1371,7 @@ if (btnExecuteSwap) {
     try {
       // Backend authorization, storage registration and settlement are confirmed
       // together by the final response; do not mark steps complete ahead of it.
-      const res = await kordWallet.fetch('/api/swap/execute', {
+      const res = await mandateWallet.fetch('/api/swap/execute', {
         method: 'POST',
         headers: getApiHeaders(),
         body: JSON.stringify({
@@ -1454,11 +1453,11 @@ document.querySelectorAll('.modal-backdrop').forEach(modal => {
   if (sidebarDisconnectBtn) {
     sidebarDisconnectBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      kordWallet.disconnect(connectedWallet).catch(err => console.warn('Meteor disconnect:', err));
+      mandateWallet.disconnect(connectedWallet).catch(err => console.warn('Meteor disconnect:', err));
     connectedWallet = null;
       currentAccount = null;
-      localStorage.removeItem('kord_connected_wallet');
-      localStorage.removeItem('kord_current_account');
+      localStorage.removeItem('mandate_connected_wallet');
+      localStorage.removeItem('mandate_current_account');
       updateWalletUI();
       showToast('Wallet disconnected');
     });

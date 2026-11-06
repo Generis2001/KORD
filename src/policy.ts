@@ -28,20 +28,20 @@ export function evaluatePayment(
     }
   }
 
-  // 2. Service Scope Check: Ensure requested service is on the directive's approved services list
+  // 2. Service Scope Check: Ensure requested service is on the mandate's approved services list
   if (mandate.allowedServices && mandate.allowedServices.length > 0 && req.serviceName) {
     const isApproved = mandate.allowedServices.includes(req.serviceName) || mandate.allowedServices.includes("all");
     if (!isApproved) {
-      deny("UNAPPROVED_SERVICE", `Service "${req.serviceName}" is not on the directive's approved services list.`);
+      deny("UNAPPROVED_SERVICE", `Service "${req.serviceName}" is not on the mandate's approved services list.`);
     }
   }
 
-  if (mandate.status !== "active") deny("MANDATE_NOT_ACTIVE", "KORD directive is closed.");
+  if (mandate.status !== "active") deny("MANDATE_NOT_ACTIVE", "Mandate is closed.");
   if (req.amount <= 0n) deny("INVALID_AMOUNT", "Amount must be a positive integer number of cents.");
   if (req.asset !== mandate.allowedAsset)
     deny("ASSET_NOT_ALLOWED", `Asset ${req.asset} is not permitted (allowed: ${mandate.allowedAsset}).`);
   if (!mandate.allowedRecipients.includes(req.recipient))
-    deny("RECIPIENT_NOT_ALLOWED", `Recipient ${req.recipient} is not on the directive allowlist.`);
+    deny("RECIPIENT_NOT_ALLOWED", `Recipient ${req.recipient} is not on the mandate allowlist.`);
   if (task.mandateId !== mandate.id || task.agentAccount !== req.recipient)
     deny("RECIPIENT_NOT_ALLOWED", "Recipient does not match the agent assigned to this task.");
   if (task.status === "paid") deny("TASK_ALREADY_PAID", "This task has already been paid.");

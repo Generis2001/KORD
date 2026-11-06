@@ -1,6 +1,6 @@
-# KORD escrow contract (Rust, near-sdk 5.x)
+# Mandate escrow contract (Rust, near-sdk 5.x)
 
-Onchain enforcement for KORD. The owner funds an escrow directive; only the designated **verifier** can release payments. The contract itself enforces:
+Onchain enforcement for Mandate. The owner funds a mandate; only the designated **verifier** can release payments. The contract itself enforces:
 
 - total budget (the attached deposit) cannot be exceeded
 - per-agent cap, counted cumulatively
@@ -13,8 +13,8 @@ Onchain enforcement for KORD. The owner funds an escrow directive; only the desi
 ## Status
 
 - The contract suite contains 23 tests for limits, allowlists, double payments, verifier authority, payout rollback and refunds. It was not rerun during the agent changes because this workspace has no installed Rust toolchain.
-- The contract is deployed at [mandate-generis-escrow.testnet](https://testnet.nearblocks.io/address/mandate-generis-escrow.testnet). Read-only RPC inspection confirmed its code and an existing `demo-1` escrow directive with 0.4 NEAR recorded as spent.
-- An explicitly authorized research fee funds a per-request escrow directive from the user agent wallet and calls `approve_payment` through its verifier signer after evidence checks. Adapter tests cover funding, verifier key authority, release events, retries, failed payouts and refunds. These tests mock RPC; the live fee check stopped before broadcast because local signing credentials are placeholders. No new live payout was executed during implementation.
+- The contract is deployed at [mandate-generis-escrow.testnet](https://testnet.nearblocks.io/address/mandate-generis-escrow.testnet). Read-only RPC inspection confirmed its code and an existing `demo-1` mandate with 0.4 NEAR recorded as spent.
+- An explicitly authorized research fee funds a per-request mandate from the user agent wallet and calls `approve_payment` through its verifier signer after evidence checks. Adapter tests cover funding, verifier key authority, release events, retries, failed payouts and refunds. These tests mock RPC; the live fee check stopped before broadcast because local signing credentials are placeholders. No new live payout was executed during implementation.
 - Not covered by unit tests: `#[private]` on `on_payout` / `on_refund` is enforced by the generated wasm wrapper, so check it on testnet (step 5 below).
 - `Cargo.lock` pins near-sdk 5.27.0 (newest that built with the Rust 1.91 used here). Newer near-sdk versions exist; if you upgrade, rerun the tests.
 - Not audited. Testnet only.

@@ -128,7 +128,7 @@ export function assertNetworkSafety(cfg: {
 
 /** Testnet-only guard maintained for backward compatibility. */
 export function assertTestnet(cfg: { network: string; rpcUrl: string; accountId: string }) {
-  if (cfg.network !== "testnet") throw new Error(`KORD is testnet-only. Refusing NEAR_NETWORK="${cfg.network}".`);
+  if (cfg.network !== "testnet") throw new Error(`Mandate is testnet-only. Refusing NEAR_NETWORK="${cfg.network}".`);
   if (!cfg.accountId.endsWith(".testnet")) throw new Error(`Account "${cfg.accountId}" is not a .testnet account.`);
   if (/mainnet|(^|\/\/)rpc\.near\.org|(^|\/\/)free\.rpc\.fastnear\.com/.test(cfg.rpcUrl))
     throw new Error(`RPC URL "${cfg.rpcUrl}" looks like mainnet. Use a testnet RPC.`);

@@ -6,7 +6,7 @@ import path from 'node:path';
 const root = path.resolve('.');
 const privateDir = path.join(root, '.secrets');
 const logDir = path.join(privateDir, 'logs');
-const model = process.env.LOCAL_AI_MODEL || 'qwen3:0.6b';
+const model = process.env.LOCAL_AI_MODEL || 'qwen3.5:0.8b';
 const tokenFile = path.join(privateDir, 'local-model-token');
 const endpointFile = path.join(privateDir, 'local-model-endpoint');
 mkdirSync(logDir, { recursive: true, mode: 0o700 });
@@ -58,7 +58,7 @@ async function start() {
     await pause(500);
   }
   if (!currentProxy || currentProxy.data.model !== model) {
-    launch('proxy', process.execPath, ['scripts/local-model-proxy.mjs'], { LOCAL_AI_MODEL: model, KORD_MODEL_TOKEN_FILE: tokenFile });
+    launch('proxy', process.execPath, ['scripts/local-model-proxy.mjs'], { LOCAL_AI_MODEL: model, MANDATE_MODEL_TOKEN_FILE: tokenFile });
   }
   for (let attempt = 0; attempt < 10; attempt++) {
     const response = await status('http://127.0.0.1:11435/health');
@@ -105,7 +105,7 @@ async function showStatus() {
 
 function stop() {
   for (const name of ['tunnel', 'proxy', 'ollama']) stopOwned(name);
-  process.stdout.write('KORD local model services stopped.\n');
+  process.stdout.write('Mandate local model services stopped.\n');
 }
 
 try {

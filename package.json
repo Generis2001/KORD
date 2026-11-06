@@ -1,9 +1,9 @@
 {
-  "name": "kord",
+  "name": "mandate",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Programmable control for autonomous agents: business research, verified deliverables, and explicit research fees with spending limits on NEAR.",
+  "description": "Autonomous business agent that delegates work, pays for verified deliverables, and enforces user-defined spending limits on NEAR.",
   "scripts": {
     "build": "node scripts/build-wallet.mjs",
     "postinstall": "npm run build",
@@ -39,6 +39,5 @@
     "tsx": "^4.23.15",
     "typescript": "^5.8.2",
     "vitest": "^5.0.5"
-  },
-  "license": "MIT"
+  }
 }

@@ -26,6 +26,29 @@ beforeEach(() => {
 });
 
 describe('official Meteor Wallet adapter', () => {
+  it('prompts for each message approval and includes its exact account and request', async () => {
+    const proof = { accountId: 'alice.testnet', publicKey: { toString: () => 'ed25519:wallet-key' }, signature: new Uint8Array([1, 2]) };
+    sdk.prompt.mockResolvedValue(proof);
+    const client = await createClient(config);
+    const params = { message: 'Approve this agent action: withdraw 1 NEAR', recipient: 'mandate', nonce: new Uint8Array(32) };
+    await client.signMessage('alice.testnet', params);
+    await client.signMessage('alice.testnet', params);
+    expect(sdk.createAction).toHaveBeenCalledTimes(2);
+    expect(sdk.prompt).toHaveBeenCalledTimes(2);
+    expect(sdk.createAction).toHaveBeenCalledWith({ id: 'near::sign_message', input: {
+      target: { blockchain: 'near', network: 'testnet', accountId: 'alice.testnet' }, messageParams: params
+    } });
+  });
+
+  it('blocks a message approval when connection selects a different account', async () => {
+    sdk.getAccount.mockResolvedValue(undefined);
+    sdk.prompt.mockResolvedValue({ identifier: { ...account.identifier, accountId: 'bob.testnet' } });
+    const client = await createClient(config);
+    await expect(client.signMessage('alice.testnet', { message: 'Withdraw 1 NEAR', recipient: 'mandate', nonce: new Uint8Array(32) })).rejects.toThrow('alice.testnet');
+    expect(sdk.createAction).toHaveBeenCalledTimes(1);
+    expect(sdk.createAction.mock.calls[0][0].id).toBe('near::sign_in');
+  });
+
   it.each(['testnet', 'mainnet'] as const)('requests only the authentication method on %s', async network => {
     sdk.prompt.mockResolvedValue({ identifier: { ...account.identifier, network } });
     const client = await createClient({ ...config, network });

@@ -42,6 +42,7 @@ export async function createClient(config: WalletConfig) {
     signIn,
     isConnected: async (accountId: string) => !!await meteor.getAccount(target(accountId), false),
     async signMessage(accountId: string, messageParams: { message: string; recipient: string; nonce: Uint8Array }) {
+      await ensureAccount(accountId);
       const action = await meteor.createAction({ id: 'near::sign_message', input: { target: target(accountId), messageParams } });
       const proof = await action.promptForExecution();
       return { accountId: proof.accountId, publicKey: proof.publicKey.toString(), signature: proof.signature };

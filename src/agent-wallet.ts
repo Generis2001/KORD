@@ -125,7 +125,7 @@ export class AgentWallet {
     return this.call(account, TEST_USDT_TOKEN_ID, 'ft_transfer', { receiver_id: recipient, amount: amount.toString(), memo }, 1n, '40', op);
   }
 
-  /** Wallet signs the deposit; KORD never signs on behalf of the linked account. */
+  /** Wallet signs the deposit; Mandate never signs on behalf of the linked account. */
   async prepareDeposit(user: string, asset: Asset, value: unknown) {
     const amount = units(value, asset === 'NEAR' ? 24 : 6);
     const recipient = this.identity(user).accountId;
@@ -140,7 +140,7 @@ export class AgentWallet {
       receiver = TEST_USDT_TOKEN_ID;
       txActions = [];
       if (!(await this.view(TEST_USDT_TOKEN_ID, 'storage_balance_of', { account_id: recipient }))) txActions.push(actions.functionCall('storage_deposit', { account_id: recipient, registration_only: true }, teraToGas('30'), STORAGE_DEPOSIT_YOCTO));
-      txActions.push(actions.functionCall('ft_transfer', { receiver_id: recipient, amount: amount.toString(), memo: 'KORD agent wallet deposit' }, teraToGas('40'), 1n));
+      txActions.push(actions.functionCall('ft_transfer', { receiver_id: recipient, amount: amount.toString(), memo: 'Mandate agent wallet deposit' }, teraToGas('40'), 1n));
     }
     const transaction = createTransaction(user, PublicKey.fromString(fullKey.public_key), receiver, BigInt(fullKey.access_key.nonce) + 1n, txActions, baseDecode(block.header.hash));
     return { accountId: recipient, asset, amount: String(value), transaction: Buffer.from(encodeTransaction(transaction)).toString('base64'),
@@ -206,7 +206,7 @@ export class AgentWallet {
       const pool = asset === 'NEAR' ? this.nearPool : this.usdtPool;
       let unstakeAll = false;
       if (['stake', 'unstake', 'claim'].includes(action)) {
-        if (!pool) throw new Error(`${asset} staking is unavailable until KORD's staking provider is configured.`);
+        if (!pool) throw new Error(`${asset} staking is unavailable until Mandate's staking provider is configured.`);
         if (action !== 'stake') {
           const position = await this.position(user, asset);
           const available = action === 'unstake' ? position.staked : position.withdrawable;
@@ -238,7 +238,7 @@ export class AgentWallet {
       try {
         let result: any;
         if (action === 'send' || action === 'withdraw') {
-          result = asset === 'NEAR' ? await this.transact(account, recipient, [actions.transfer(amount)], op) : await this.transferToken(account, recipient, amount, `KORD ${action} ${op.id}`, op);
+          result = asset === 'NEAR' ? await this.transact(account, recipient, [actions.transfer(amount)], op) : await this.transferToken(account, recipient, amount, `Mandate ${action} ${op.id}`, op);
         } else if (action === 'stake') {
           if (asset === 'NEAR') result = await this.call(account, pool, 'deposit_and_stake', {}, amount, '100', op);
           else {
@@ -255,7 +255,7 @@ export class AgentWallet {
           result = await this.executeDex(user, op);
         } else {
           const poolAccount = this.poolAccount();
-          result = asset === 'NEAR' ? await this.transact(account, this.cfg.accountId, [actions.transfer(amount)], op) : await this.transferToken(account, this.cfg.accountId, amount, `KORD swap ${op.id}`, op);
+          result = asset === 'NEAR' ? await this.transact(account, this.cfg.accountId, [actions.transfer(amount)], op) : await this.transferToken(account, this.cfg.accountId, amount, `Mandate swap ${op.id}`, op);
           op.txHashes.push(confirmedHash(result));
           op.status = 'funding_confirmed';
           await this.receipts.save(op);
@@ -265,7 +265,7 @@ export class AgentWallet {
           delete op.attempt;
           await this.receipts.save(op);
           result = asset === 'NEAR'
-            ? await this.transferToken(poolAccount, recipient, amount * BigInt(DEMO_EXCHANGE_RATE) / 10n ** 18n, `KORD swap ${op.id}`, op)
+            ? await this.transferToken(poolAccount, recipient, amount * BigInt(DEMO_EXCHANGE_RATE) / 10n ** 18n, `Mandate swap ${op.id}`, op)
             : await this.transact(poolAccount, recipient, [actions.transfer(amount * 10n ** 18n / BigInt(DEMO_EXCHANGE_RATE))], op);
         }
         op.txHashes.push(confirmedHash(result));
@@ -398,7 +398,7 @@ export class AgentWallet {
       try {
         const pool = this.poolAccount();
         const result = op.asset === 'NEAR'
-          ? await this.transferToken(pool, this.identity(user).accountId, amount * 5n / 10n ** 18n, `KORD swap ${op.id}`, op)
+          ? await this.transferToken(pool, this.identity(user).accountId, amount * 5n / 10n ** 18n, `Mandate swap ${op.id}`, op)
           : await this.transact(pool, this.identity(user).accountId, [actions.transfer(amount * 10n ** 18n / 5n)], op);
         op.txHashes.push(confirmedHash(result));
         op.status = 'confirmed'; delete op.error;

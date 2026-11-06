@@ -1,5 +1,5 @@
 [package]
-name = "kord-testnet-staking"
+name = "mandate-testnet-staking"
 version = "0.1.0"
 edition = "2021"
 

@@ -7,7 +7,7 @@
       this.request = request;
       this.onChange = onChange;
       this.onError = onError;
-      this.key = 'kord_conversations_v1_' + this.account;
+      this.key = 'mandate_conversations_v1_' + this.account;
       this.records = new Map();
       this.queues = new Map();
       this.removing = new Set();
@@ -20,7 +20,7 @@
         }
       } catch { this.onError('Local conversation backup could not be loaded.'); }
     }
-    headers() { return { 'Content-Type': 'application/json', 'x-kord-account': this.account }; }
+    headers() { return { 'Content-Type': 'application/json', 'x-mandate-account': this.account }; }
     cache() {
       try { this.storage.setItem(this.key, JSON.stringify({ activeId: this.activeId, records: [...this.records.values()] })); }
       catch { this.onError('Local backup is unavailable. Keep this page open until your conversation finishes syncing.'); }
@@ -57,7 +57,7 @@
     changed(record) {
       const id = record.id;
       const first = record.messages.find(message => message.role === 'user');
-      record.title = first ? first.text.slice(0,36) + (first.text.length > 36 ? '…' : '') : 'KORD Session';
+      record.title = first ? first.text.slice(0,36) + (first.text.length > 36 ? '…' : '') : 'Mandate Session';
       record.updatedAt = new Date().toISOString();
       record.pending = true;
       record.version++;

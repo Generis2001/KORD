@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
  * and to .env (treasury + verifier only, if .env does not exist). Secrets are never printed.
  *
  * Usage: npm run gen-keys -- <prefix>
- * Example: npm run gen-keys -- kord-gen   ->  kord-gen-treasury.testnet, ...
+ * Example: npm run gen-keys -- mandate-gen   ->  mandate-gen-treasury.testnet, ...
  * Then create each printed account (see README) using its printed PUBLIC key, and fund the treasury.
  */
 const prefix = process.argv[2];
@@ -40,7 +40,7 @@ if (!existsSync(".env")) {
       `VERIFIER_ACCOUNT_ID=${k.verifier.accountId}`,
       `VERIFIER_PRIVATE_KEY=${k.verifier.secretKey}`,
       "YOCTO_PER_CENT=1000000000000000000000",
-      "KORD_DB=kord.db",
+      "MANDATE_DB=mandate.db",
       "",
     ].join("\n"),
     { mode: 0o600 },

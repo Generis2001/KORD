@@ -1,4 +1,4 @@
-/* Local authentication keys only sign KORD requests; linked-wallet transfers stay in the wallet. */
+/* Local authentication keys only sign Mandate requests; linked-wallet transfers stay in the wallet. */
 (() => {
   const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
   const b58 = bytes => {
@@ -27,29 +27,46 @@
       meteorClient = (async () => {
         const cfg = await getConfig();
         // Load the self-hosted SDK only when a wallet interaction needs it.
-        if (!window.kordMeteor) {
+        if (!window.mandateMeteor) {
           if (!meteorSdk) {
             meteorSdk = new Promise((resolve, reject) => {
               const script = document.createElement('script');
               script.src = 'meteor.bundle.js';
               const failed = () => { script.remove(); meteorSdk = null; reject(new Error('Meteor Wallet could not load. Try again.')); };
-              script.onload = () => window.kordMeteor?.createClient ? resolve() : failed();
+              script.onload = () => window.mandateMeteor?.createClient ? resolve() : failed();
               script.onerror = failed;
               document.head.appendChild(script);
             });
           }
           await meteorSdk;
         }
-        return window.kordMeteor.createClient(cfg);
+        return window.mandateMeteor.createClient(cfg);
       })().catch(error => { meteorClient = null; throw error; });
     }
     return meteorClient;
   }
   function storedAuth(account) {
     try {
-      const auth = JSON.parse(localStorage.getItem('kord_auth_' + account) || 'null');
+      const auth = JSON.parse(localStorage.getItem('mandate_auth_' + account) || 'null');
       return auth?.accountId === account && auth.publicKey && auth.privateKey ? auth : null;
     } catch { return null; }
+  }
+  function needsFreshApproval(pathname, method, body, continuingUnstake, account) {
+    if (!['POST', 'DELETE'].includes(method)) return false;
+    let payload;
+    try { payload = JSON.parse(body || '{}'); } catch { return false; }
+    // Collection completes the previously approved unstake after its cooldown.
+    if (continuingUnstake && pathname === '/api/wallet/execute' && payload.action === 'claim' && storedAuth(account)) return false;
+    if (['/api/wallet/execute', '/api/wallet/reconcile', '/api/wallet/resume', '/api/swap/execute', '/api/allowlist'].includes(pathname)) return true;
+    if (pathname !== '/api/chat' || typeof payload.message !== 'string') return false;
+    const prompt = payload.message.trim();
+    const command = prompt.toLowerCase().replace(/^(?:please\s+)?(?:mandate[, :]*)?\s*/, '')
+      .match(/^(deposit|fund(?:\s+treasury)?(?:\s+with)?|withdraw|stake|unstake|claim|swap|exchange|pay|send|transfer)\s+([0-9]+(?:\.[0-9]+)?)\s+(?:test\s+)?(near|usdt)\b(.*)$/);
+    if (command) return !/^(?:deposit|fund)/.test(command[1]);
+    if (/^(?:mandate\s+)?refund escrow m_[a-f0-9]{40}$/i.test(prompt) || /add\s+[a-z0-9._-]+\s+to\s+(?:my\s+)?allowlist/i.test(prompt)) return true;
+    // Match the server's explicit, terminal fee clause. A budget is not a fee.
+    const fee = prompt.match(/(?:^|[;,\n]|\.(?=\s)|\band\s+)\s*(?:escrow\s+((?:0|[1-9]\d*)(?:\.\d{1,24})?)\s+(?:testnet\s+)?NEAR\s+to\s+([a-z0-9._-]+)|(?:research\s+fee|(?:charge|authorize)\s+(?:a\s+|the\s+)?research\s+fee(?:\s+of)?)\s+((?:0|[1-9]\d*)(?:\.\d{1,24})?)\s+(?:testnet\s+)?NEAR(?:\s+to\s+([a-z0-9._-]+))?|pay\s+((?:0|[1-9]\d*)(?:\.\d{1,24})?)\s+(?:testnet\s+)?NEAR\s+for\s+research(?:\s+to\s+([a-z0-9._-]+))?)\s*[.!]?\s*$/i);
+    return !!fee && /[1-9]/.test(fee[1] || fee[3] || fee[5]);
   }
   async function authorize(expectedAccount = null) {
     const version = ++authorizationVersion;
@@ -59,69 +76,82 @@
     const account = await client.signIn(auth.publicKey);
     if (expectedAccount && account !== expectedAccount) throw new Error('Authorize using your linked account: ' + expectedAccount + '.');
     auth.accountId = account;
-    const res = await walletFetch('/api/wallet/authorize', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-kord-account': account }, body: '{}' }, auth);
+    const res = await walletFetch('/api/wallet/authorize', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-mandate-account': account }, body: '{}' }, auth);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Meteor Wallet authorization could not be verified.');
-    if (version !== authorizationVersion || (expectedAccount && localStorage.getItem('kord_connected_wallet') !== expectedAccount)) {
+    if (version !== authorizationVersion || (expectedAccount && localStorage.getItem('mandate_connected_wallet') !== expectedAccount)) {
       throw new Error('Your linked wallet changed. Connect Meteor Wallet again.');
     }
-    localStorage.setItem('kord_auth_' + account, JSON.stringify(auth));
-    localStorage.removeItem('kord_pending_auth');
+    localStorage.setItem('mandate_auth_' + account, JSON.stringify(auth));
+    localStorage.removeItem('mandate_pending_auth');
     return account;
   }
   async function walletFetch(url, options = {}, suppliedAuth = null) {
+    const { continuingUnstake = false, ...requestOptions } = options;
     const method = (options.method || 'GET').toUpperCase();
+    const pathname = new URL(url, location.origin).pathname;
     const headers = new Headers(options.headers);
-    const account = headers.get('x-kord-account') || localStorage.getItem('kord_connected_wallet');
-    if (account) headers.set('x-kord-account', account);
-    const target = new URL(url, location.origin);
-    const privateHistory = target.pathname === '/api/conversations';
-    if (account && (['POST', 'DELETE'].includes(method) || privateHistory && method === 'GET')) {
+    const account = headers.get('x-mandate-account') || localStorage.getItem('mandate_connected_wallet');
+    if (account && ['POST', 'DELETE'].includes(method)) {
       const body = options.body || '';
       const timestamp = String(Date.now());
       const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)));
-      const message = `KORD wallet request\n${account}\n${method}\n${target.pathname + (privateHistory ? target.search : '')}\n${timestamp}\n${Array.from(hash, n => n.toString(16).padStart(2, '0')).join('')}`;
+      const message = `Mandate wallet request\n${account}\n${method}\n${pathname}\n${timestamp}\n${Array.from(hash, n => n.toString(16).padStart(2, '0')).join('')}`;
       const auth = suppliedAuth || storedAuth(account);
-      if (auth) {
+      if (!suppliedAuth && needsFreshApproval(pathname, method, body, continuingUnstake, account)) {
+        const version = authorizationVersion;
+        if (localStorage.getItem('mandate_connected_wallet') !== account) throw new Error('Sign using your linked account.');
+        const client = await getMeteorClient();
+        const nonce = crypto.getRandomValues(new Uint8Array(32));
+        const proof = await client.signMessage(account, { message: message + '\n\nApprove this agent action:\n' + body, recipient: 'mandate', nonce });
+        if (proof.accountId !== account) throw new Error('Sign using your linked account.');
+        if (version !== authorizationVersion || localStorage.getItem('mandate_connected_wallet') !== account) throw new Error('Your linked wallet changed. Connect Meteor Wallet again.');
+        headers.set('x-mandate-auth-type', 'nep413');
+        headers.set('x-mandate-approval', 'request');
+        headers.set('x-mandate-public-key', proof.publicKey);
+        headers.set('x-mandate-signature', base64(proof.signature));
+        headers.set('x-mandate-nonce', base64(nonce));
+        headers.set('x-mandate-timestamp', timestamp);
+      } else if (auth) {
         const key = await crypto.subtle.importKey('pkcs8', unbase64(auth.privateKey), 'Ed25519', false, ['sign']);
-        headers.set('x-kord-public-key', auth.publicKey);
-        headers.set('x-kord-signature', b58(new Uint8Array(await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(message)))));
-        headers.set('x-kord-timestamp', timestamp);
-      } else if (!privateHistory && ['/api/wallet/execute', '/api/wallet/reconcile', '/api/wallet/resume', '/api/swap/execute', '/api/chat', '/api/allowlist'].includes(target.pathname)) {
+        headers.set('x-mandate-public-key', auth.publicKey);
+        headers.set('x-mandate-signature', b58(new Uint8Array(await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(message)))));
+        headers.set('x-mandate-timestamp', timestamp);
+      } else if (['/api/wallet/execute', '/api/wallet/reconcile', '/api/wallet/resume', '/api/swap/execute', '/api/chat', '/api/allowlist'].includes(pathname)) {
         const client = await getMeteorClient();
         if (await client.isConnected(account)) {
           const nonce = crypto.getRandomValues(new Uint8Array(32));
-          const proof = await client.signMessage(account, { message, recipient: 'KORD', nonce });
+          const proof = await client.signMessage(account, { message, recipient: 'mandate', nonce });
           if (proof.accountId !== account) throw new Error('Sign using your linked account.');
-          headers.set('x-kord-auth-type', 'nep413');
-          headers.set('x-kord-public-key', proof.publicKey);
-          headers.set('x-kord-signature', base64(proof.signature));
-          headers.set('x-kord-nonce', base64(nonce));
-          headers.set('x-kord-timestamp', timestamp);
+          headers.set('x-mandate-auth-type', 'nep413');
+          headers.set('x-mandate-public-key', proof.publicKey);
+          headers.set('x-mandate-signature', base64(proof.signature));
+          headers.set('x-mandate-nonce', base64(nonce));
+          headers.set('x-mandate-timestamp', timestamp);
         }
       }
     }
-    return fetch(url, { ...options, method, headers });
+    return fetch(url, { ...requestOptions, headers });
   }
   async function signDeposit(deposit) {
-    const account = localStorage.getItem('kord_connected_wallet');
+    const account = localStorage.getItem('mandate_connected_wallet');
     if (!account) throw new Error('Link your wallet first.');
     if (deposit.walletTransaction?.signerId !== account) throw new Error('Deposit using your linked account.');
     const client = await getMeteorClient();
     const result = await client.signAndSendTransaction(deposit.walletTransaction);
     const txHash = result?.transaction?.hash || result?.transaction_outcome?.id;
     if (!txHash) throw new Error('Meteor Wallet did not return a transaction hash.');
-    const res = await walletFetch('/api/wallet/deposit/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-kord-account': account }, body: JSON.stringify({ txHash }) });
+    const res = await walletFetch('/api/wallet/deposit/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-mandate-account': account }, body: JSON.stringify({ txHash }) });
     const confirmed = await res.json();
     if (!res.ok) throw new Error(confirmed.error);
     return confirmed;
   }
-  window.kordWallet = { fetch: walletFetch, authorize, signDeposit,
+  window.mandateWallet = { fetch: walletFetch, authorize, signDeposit,
     authorized: account => !!storedAuth(account),
     disconnect: async account => {
       ++authorizationVersion;
       if (account) {
-        localStorage.removeItem('kord_auth_' + account);
+        localStorage.removeItem('mandate_auth_' + account);
         const client = await getMeteorClient();
         await client.disconnect(account);
       }

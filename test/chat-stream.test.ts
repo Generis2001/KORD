@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const window: any = {};
 runInNewContext(readFileSync(new URL('../public/chat.js', import.meta.url), 'utf8'), { window, TextDecoder });
-const chat = window.KordChat;
+const chat = window.MandateChat;
 const request = { requestId: 'mandate_chairs', text: 'Find three suppliers of 100 office chairs' };
 const result = { type: 'mandate_execution', requestId: request.requestId, mandateResult: { mandate: { id: request.requestId, requestedGoal: request.text } } };
 function stream(text: string, chunks = 11) {

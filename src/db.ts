@@ -552,7 +552,7 @@ export class Store {
 
   getMandate(id: string): Mandate {
     const r = this.db.prepare("SELECT * FROM mandates WHERE id=?").get(id) as any;
-    if (!r) throw new Error(`KORD directive ${id} not found`);
+    if (!r) throw new Error(`Mandate ${id} not found`);
     return {
       id: r.id, goal: r.goal, totalBudget: BigInt(r.total_budget), perAgentCap: BigInt(r.per_agent_cap),
       allowedRecipients: JSON.parse(r.allowed_recipients), allowedAsset: r.allowed_asset,

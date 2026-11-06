@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LocalAI, LOCAL_AI_ENDPOINT } from '../src/local-ai.js';
+import { LocalAI, LOCAL_AI_ENDPOINT, reasoningEvidence, renderReasonedAnalysis } from '../src/local-ai.js';
 import { analyzeResearch, researchPublicSources } from '../src/research.js';
 import { runAutonomousMandate } from '../src/runner.js';
 import type { WalletOperation } from '../src/wallet-store.js';
@@ -72,6 +72,17 @@ describe('local business reasoning with explicit fees', () => {
     expect(result.payout).toMatchObject({ status: 'confirmed', amount: '0.037 testnet NEAR' });
     expect(settleEscrow).toHaveBeenCalledTimes(1);
   });
+  it('corrects numerical citations with a source-specific guide without repeating the rejected answer', async () => {
+    let attempt = 0;
+    const local = model({ analysis: () => ++attempt === 1 ? { ...answer(), summary: { ...cited(), text: 'Supplier A charges 80 USD.' } } : answer() });
+    const result = await runAutonomousMandate({ goal, loadSource, reasoner: local.reasoner });
+    expect(result.deliverable.verification.passed).toBe(true);
+    expect(local.packets[2].task).not.toHaveProperty('rejectedAnswer');
+    expect(local.packets[2].task.numericSupport[0]).toMatchObject({ number: '80' });
+    expect(local.packets[2].task.numericSupport[0].supportingPassageIds.length).toBeGreaterThan(0);
+    expect(local.packets[2].task.numericSupport[0].supportingPassageIds.every((id: string) => id.startsWith('s2p'))).toBe(true);
+    expect(result.payout.status).toBe('not_requested');
+  });
   it.each([
     ['uncited conclusion', { ...answer(), summary: { text: 'Delivery is available.', citations: [] } }, 'uncited'],
     ['invented quote', { ...answer(), summary: { text: 'Delivery is available.', citations: [{ passageId: 's1p1', quote: 'A made-up promise of free global delivery.' }] } }, 'passage'],
@@ -79,6 +90,11 @@ describe('local business reasoning with explicit fees', () => {
     ['unknown passage', { ...answer(), summary: { text: 'Delivery is available.', citations: [{ passageId: 's1p99' }] } }, 'passage'],
     ['invented amount', { ...answer(), summary: { ...cited(), text: 'Delivery costs 9999 USD.' } }, 'number'],
     ['amount from an uncited supplier', { ...answer(), summary: { ...cited(), text: 'Supplier A charges 80 USD.' } }, 'number'],
+    ['count turned into a dollar budget', { ...answer(), summary: { ...cited(), text: 'The project has a $5 million budget.' } }, 'unit or currency'],
+    ['day count turned into a population', { ...answer(), summary: { ...cited(), text: 'The project serves 5 million people.' } }, 'unit or currency'],
+    ['price multiplied by an unsupported magnitude', { ...answer(), summary: { ...cited(), text: 'The chair costs 100 million USD.' } }, 'unit or currency'],
+    ['price multiplied by an abbreviated magnitude', { ...answer(), summary: { ...cited(), text: 'The chair costs $100m.' } }, 'unit or currency'],
+    ['price assigned to another currency', { ...answer(), summary: { ...cited(), text: 'The chair costs 100 EUR.' } }, 'unit or currency'],
     ['shipping time presented as arrival', { ...answer(), summary: { ...cited(), text: 'Delivery within 5 business days.' } }, 'delivery promise'],
     ['shipping time presented as a delivery deadline', { ...answer(), summary: { ...cited(), text: 'Both offer 5-day delivery.' } }, 'delivery promise'],
     ['shipping mentioned alongside an invented arrival promise', { ...answer(), summary: { ...cited(), text: 'Orders ship after confirmation and offer 5-day delivery.' } }, 'delivery promise'],
@@ -107,6 +123,20 @@ describe('local business reasoning with explicit fees', () => {
     const reasoned = await local.reasoner.analyze(goal, research, analysis, undefined);
     await expect(local.reasoner.verify(goal, research, analysis, reasoned.value, undefined, { passed: false, problems: ['Source integrity failed.'] })).rejects.toThrow('contradicted');
   });
+  it('accepts source-specific monetary totals in their original currency', async () => {
+    const local = model({ analysis: { ...answer(), summary: { ...cited(), text: 'The quantity estimate for 10 chairs is 1000 USD before tax and delivery.' } } });
+    const result = await runAutonomousMandate({ goal, loadSource, reasoner: local.reasoner });
+    expect(result.deliverable.verification.passed).toBe(true);
+    expect(result.deliverable.preview).toContain('1000 USD');
+  });
+  it('rejects a model reviewer that adds numerical research claims to its approval summary', async () => {
+    const local = model({ verification: { passed: true, summary: 'The project has a $5 million budget.', problems: [] } });
+    const settleEscrow = vi.fn();
+    const result = await runAutonomousMandate({ goal: goal + '; research fee 0.037 NEAR', loadSource, reasoner: local.reasoner, settleEscrow });
+    expect(result.deliverable.verification.passed).toBe(false);
+    expect(result.deliverable.verification.problems.join(' ')).toContain('summary introduced');
+    expect(settleEscrow).not.toHaveBeenCalled();
+  });
   it('resolves passage IDs to the exact original source text before the independent review', async () => {
     const research = await researchPublicSources(goal, loadSource), analysis = analyzeResearch(research), local = model();
     const result = await local.reasoner.analyze(goal, research, analysis, undefined);
@@ -115,6 +145,51 @@ describe('local business reasoning with explicit fees', () => {
     expect(research.sources[0].text).toContain(passage.text);
     await local.reasoner.verify(goal, research, analysis, result.value, undefined, { passed: true, problems: [] });
     expect(local.packets[1].task.conclusions.summary.citations[0].quote).toBe(passage.text);
+  });
+  it('preserves complete original passages and their trailing commercial conditions', async () => {
+    const research = await researchPublicSources(goal, loadSource);
+    const passage = 'Office chair orders ship after confirmation. ' + 'Confirm the exact specification with the supplier. '.repeat(10) + quote;
+    research.sources[0].text = 'Office chairs ' + passage;
+    research.findings = [{ source: research.sources[0].url, kind: 'delivery', excerpt: passage }];
+    const analysis = analyzeResearch(research), local = model();
+    const result = await local.reasoner.analyze(goal, research, analysis, undefined);
+    expect(result.value.summary.citations[0].quote).toBe(passage);
+    expect(result.value.summary.citations[0].quote).toContain('Delivery is limited to domestic addresses.');
+  });
+  it('supplies source-specific permitted numbers without granting amounts from other suppliers or URL metadata', async () => {
+    const research = await researchPublicSources(goal, loadSource);
+    research.sources[0].url = 'https://supplier-a.org/2023/chairs';
+    research.findings!.forEach(finding => { if (finding.source.includes('supplier-a')) finding.source = research.sources[0].url; });
+    const evidence = reasoningEvidence(research, analyzeResearch(research));
+    const passage = evidence.sources.find(source => source.id === 's1')!.passages[0];
+    expect(passage.permittedNumbers).toEqual(expect.arrayContaining(['5', '10', '100', '1000']));
+    expect(passage.permittedNumbers).not.toContain('80');
+    expect(passage.permittedNumbers).not.toContain('2023');
+    expect(JSON.stringify(evidence)).not.toContain('/2023/chairs');
+  });
+  it('selects independent late sources with their original IDs and rejects real passages excluded from the packet', async () => {
+    const research = await researchPublicSources(goal, loadSource);
+    const first = research.sources[0], second = research.sources[1];
+    research.sources = [...Array.from({ length: 8 }, (_, index) => ({ ...first, url: `https://en.wikipedia.org/wiki/Office_chair_${index + 1}` })), first, second];
+    research.findings = research.sources.map(source => ({ source: source.url, kind: 'delivery' as const, excerpt: quote }));
+    const analysis = analyzeResearch(research), evidence = reasoningEvidence(research, analysis);
+    expect(evidence.sources).toHaveLength(8);
+    expect(evidence.sources.map(source => source.id)).toEqual(expect.arrayContaining(['s9', 's10']));
+    expect(evidence.sources.some(source => source.id === 's8')).toBe(false);
+    const lateClaim = { text: 'Delivery is limited to domestic addresses.', citations: [{ passageId: 's10p1' }] };
+    const local = model({ analysis: { ...answer(), summary: lateClaim, findings: [{ heading: 'Delivery conditions', claim: lateClaim }] } });
+    const result = await local.reasoner.analyze(goal, research, analysis, undefined);
+    expect(result.value.summary.citations[0]).toEqual({ sourceId: 's10', quote });
+    expect(renderReasonedAnalysis(result.value, research)).toContain(second.url);
+    const excluded = model({ analysis: { ...answer(), summary: { ...lateClaim, citations: [{ passageId: 's8p1' }] } } });
+    await expect(excluded.reasoner.analyze(goal, research, analysis, undefined)).rejects.toThrow('not in the supplied source evidence');
+  });
+  it('prevents planning facts from URL slugs while retaining the requested publisher', async () => {
+    const local = model({ research: { queries: ['Nigeria solar electricity access'], criteria: ['Investigate energy access for 17.5 million people'] } });
+    await expect(local.reasoner.plan('Research solar energy in Nigeria at https://www.worldbank.org/en/news/2023/12/14/energy-for-17-5-million-people')).rejects.toThrow('before retrieving');
+    expect(local.packets[0].task.question).toBe('Research solar energy in Nigeria at');
+    expect(local.packets[0].task.requestedSources).toEqual([{ publisher: 'worldbank.org' }]);
+    expect(JSON.stringify(local.packets[0].task)).not.toContain('17-5-million');
   });
   it('rejects truncated or unreachable local inference without releasing a payment', async () => {
     const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ done: true, done_reason: 'length', message: { content: '{}' } })));

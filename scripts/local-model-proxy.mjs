@@ -84,9 +84,9 @@ export function createModelProxy({ token, model, endpoint = 'http://127.0.0.1:11
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const token = readFileSync(process.env.KORD_MODEL_TOKEN_FILE || '.secrets/local-model-token', 'utf8').trim();
-  const model = process.env.LOCAL_AI_MODEL || 'qwen3:0.6b';
+  const token = readFileSync(process.env.MANDATE_MODEL_TOKEN_FILE || '.secrets/local-model-token', 'utf8').trim();
+  const model = process.env.LOCAL_AI_MODEL || 'qwen3.5:0.8b';
   const server = createModelProxy({ token, model });
   server.requestTimeout = 125_000;
-  server.listen(11435, '127.0.0.1', () => process.stdout.write('KORD authenticated model proxy listening on 127.0.0.1:11435\n'));
+  server.listen(11435, '127.0.0.1', () => process.stdout.write('Mandate authenticated model proxy listening on 127.0.0.1:11435\n'));
 }
