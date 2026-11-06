@@ -8,7 +8,7 @@ import { nigeriaGoal, nigeriaLoader } from './fixtures/research-presentation.js'
 
 const window: any = {};
 runInNewContext(readFileSync(new URL('../public/research.js', import.meta.url), 'utf8'), { window });
-const feeReceipt = window.MandateResearch.feeReceipt;
+const feeReceipt = window.KordResearch.feeReceipt;
 const goal = nigeriaGoal + '; research fee 0.001 NEAR';
 const settled = (request: any): WalletOperation => ({
   id: request.id + '_release', userAccount: 'alice.testnet', action: 'escrow_release',

@@ -2,7 +2,7 @@ import type { Asset } from './agent-wallet.js';
 
 /** Explicit financial commands only; unrecognised prose never becomes a transaction. */
 export function parseWalletCommand(prompt: string): { action: string; asset: Asset; amount: string; recipient?: string } | null {
-  const text = prompt.trim().toLowerCase().replace(/^(?:please\s+)?(?:mandate[, :]*)?\s*/, '');
+  const text = prompt.trim().toLowerCase().replace(/^(?:please\s+)?(?:(?:kord|mandate)[, :]*)?\s*/, '');
   const match = text.match(/^(deposit|fund(?:\s+treasury)?(?:\s+with)?|withdraw|stake|unstake|claim|swap|exchange|pay|send|transfer)\s+([0-9]+(?:\.[0-9]+)?)\s+(?:test\s+)?(near|usdt)\b(.*)$/);
   if (!match) return null;
   const [, verb, amount, token, tail] = match;

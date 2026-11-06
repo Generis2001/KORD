@@ -12,9 +12,14 @@ class MemoryStorage {
   removeItem(key: string) { this.data.delete(key); }
 }
 const source = readFileSync(new URL('../public/wallet.js', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8').match(/<script>([\s\S]*?)<\/script>/)![1];
+const migrate = (storage: MemoryStorage) => runInNewContext(migration, {
+  localStorage: storage, document: { documentElement: { dataset: {} } },
+  Object: { keys: () => [...storage.data.keys()] },
+});
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 function fixture(storage = new MemoryStorage()) {
-  storage.setItem('mandate_connected_wallet', 'alice.testnet');
+  storage.setItem('kord_connected_wallet', 'alice.testnet');
   const provider = new JsonRpcProvider({ url: 'http://localhost:3999' });
   const query = vi.spyOn(provider, 'query').mockResolvedValue({ nonce: 3 } as any);
   const client = { signIn: vi.fn().mockResolvedValue('alice.testnet'), isConnected: vi.fn().mockResolvedValue(false),
@@ -24,29 +29,56 @@ function fixture(storage = new MemoryStorage()) {
     if (url === '/api/wallet/config') return response({ network: 'testnet', walletUrl: 'https://wallet.meteorwallet.app', authReceiver: 'treasury.testnet' });
     if (url === '/api/wallet/deposit/confirm') return response({ success: true });
     try {
-      await verifyWalletRequest(provider, options.headers.get('x-mandate-account') || storage.getItem('mandate_connected_wallet')!,
+      await verifyWalletRequest(provider, options.headers.get('x-kord-account') || storage.getItem('kord_connected_wallet')!,
         options.method, url, options.body || '', Object.fromEntries(options.headers));
       return response({ authorized: true });
     } catch (error: any) { return response({ error: error.message }, 400); }
   });
   const location = { origin: 'http://localhost:3000', pathname: '/', assign: vi.fn() };
-  const window: any = { mandateMeteor: { createClient } };
+  const window: any = { kordMeteor: { createClient } };
   runInNewContext(source, { window, localStorage: storage, crypto: webcrypto, fetch: request, location, Headers, URL, TextEncoder, btoa, atob });
-  return { wallet: window.mandateWallet, client, createClient, request, query, storage, location };
+  return { wallet: window.kordWallet, client, createClient, request, query, storage, location };
 }
 
 describe('Meteor browser wallet flow', () => {
+  it('migrates existing authentication once without restoring a disconnected key on later page loads', async () => {
+    const f = fixture();
+    await f.wallet.authorize('alice.testnet');
+    f.storage.setItem('mandate_auth_alice.testnet', f.storage.getItem('kord_auth_alice.testnet')!);
+    f.storage.removeItem('kord_auth_alice.testnet');
+    f.storage.setItem('mandate_theme', 'dark');
+    f.storage.setItem('kord_theme', 'light');
+    migrate(f.storage);
+    expect(f.wallet.authorized('alice.testnet')).toBe(true);
+    expect(f.storage.getItem('kord_theme')).toBe('light');
+    expect((await f.wallet.fetch('/api/wallet/execute', { method: 'POST', body: '{}' })).ok).toBe(true);
+    await f.wallet.disconnect('alice.testnet');
+    migrate(f.storage);
+    expect(f.wallet.authorized('alice.testnet')).toBe(false);
+  });
+  it('signs private conversation reads, including their query, without signing public GET requests', async () => {
+    const f = fixture();
+    await f.wallet.authorize('alice.testnet');
+    expect((await f.wallet.fetch('/api/conversations?id=conv_private')).ok).toBe(true);
+    const privateOptions = f.request.mock.calls.at(-1)![1];
+    expect(privateOptions.method).toBe('GET');
+    expect(privateOptions.headers.get('x-kord-account')).toBe('alice.testnet');
+    expect(privateOptions.headers.get('x-kord-signature')).toBeTruthy();
+    await f.wallet.fetch('/api/swap/quote?amountNear=1');
+    expect(f.request.mock.calls.at(-1)![1].headers.get('x-kord-signature')).toBeNull();
+    expect(f.client.signMessage).not.toHaveBeenCalled();
+  });
   it('verifies authorization before persisting a key, then signs spend and allowlist requests after reload', async () => {
     const f = fixture();
     expect(f.wallet.authorized('alice.testnet')).toBe(false);
     expect(await f.wallet.authorize('alice.testnet')).toBe('alice.testnet');
-    const auth = JSON.parse(f.storage.getItem('mandate_auth_alice.testnet')!);
+    const auth = JSON.parse(f.storage.getItem('kord_auth_alice.testnet')!);
     expect(f.client.signIn).toHaveBeenCalledWith(auth.publicKey);
     expect(f.query).toHaveBeenCalledWith(expect.objectContaining({ account_id: 'alice.testnet', public_key: auth.publicKey }));
     expect(f.wallet.authorized('alice.testnet')).toBe(true);
     const restored = fixture(f.storage);
     for (const [method, url, body] of [['POST', '/api/wallet/execute', '{"action":"withdraw","asset":"NEAR","amount":"1"}'], ['DELETE', '/api/allowlist', '{"accountId":"payee.testnet"}']]) {
-      const result = await restored.wallet.fetch(url, { method, headers: { 'x-mandate-account': 'alice.testnet' }, body });
+      const result = await restored.wallet.fetch(url, { method, headers: { 'x-kord-account': 'alice.testnet' }, body });
       expect(result.ok).toBe(true);
     }
     expect(restored.createClient).not.toHaveBeenCalled();
@@ -61,7 +93,7 @@ describe('Meteor browser wallet flow', () => {
     await expect(f.wallet.authorize('alice.testnet')).rejects.toThrow('alice.testnet');
     expect(f.wallet.authorized('alice.testnet')).toBe(false);
     expect(f.wallet.authorized('bob.testnet')).toBe(false);
-    expect(f.storage.getItem('mandate_connected_wallet')).toBe('alice.testnet');
+    expect(f.storage.getItem('kord_connected_wallet')).toBe('alice.testnet');
     expect(f.request.mock.calls.some(([url]) => url === '/api/wallet/authorize')).toBe(false);
   });
 
@@ -83,7 +115,7 @@ describe('Meteor browser wallet flow', () => {
 
   it('shares one SDK client across concurrent wallet requests', async () => {
     const f = fixture();
-    const options = { method: 'POST', headers: { 'x-mandate-account': 'alice.testnet' }, body: '{}' };
+    const options = { method: 'POST', headers: { 'x-kord-account': 'alice.testnet' }, body: '{}' };
     await Promise.all([f.wallet.fetch('/api/wallet/execute', options), f.wallet.fetch('/api/wallet/reconcile', options)]);
     expect(f.createClient).toHaveBeenCalledTimes(1);
     expect(f.request.mock.calls.filter(([url]) => url === '/api/wallet/config')).toHaveLength(1);
@@ -104,7 +136,7 @@ describe('Meteor browser wallet flow', () => {
 
   it('leaves address-only links unauthorized and verifies fresh Meteor NEP-413 proofs', async () => {
     const f = fixture();
-    const options = { method: 'POST', headers: { 'x-mandate-account': 'alice.testnet' }, body: '{}' };
+    const options = { method: 'POST', headers: { 'x-kord-account': 'alice.testnet' }, body: '{}' };
     expect((await f.wallet.fetch('/api/wallet/execute', options)).ok).toBe(false);
     const key = KeyPair.fromRandom('ed25519');
     f.client.isConnected.mockResolvedValue(true);

@@ -10,14 +10,16 @@ import { AgentWallet, validAccount, decimal } from './agent-wallet.js';
 import { auditWalletReceipt } from './receipt-audit.js';
 import { VerifiedEscrow } from './escrow.js';
 import { WalletStore } from './wallet-store.js';
-import { verifyWalletRequest } from './wallet-auth.js';
+import { authorizeWalletRequest, verifyWalletRequest } from './wallet-auth.js';
+import { LocalAI } from './local-ai.js';
 import { parseWalletCommand } from './wallet-command.js';
 import { createHash } from 'node:crypto';
 
 const PORT = 3000;
 const rootDir = path.resolve('.');
 const publicDir = path.join(rootDir, 'public');
-const dbPath = process.env.MANDATE_DB ?? (process.env.VERCEL ? path.join('/tmp', 'mandate.db') : path.join(rootDir, 'mandate.db'));
+const legacyDb = path.join(process.env.VERCEL ? '/tmp' : rootDir, 'mandate.db');
+const dbPath = process.env.KORD_DB ?? process.env.MANDATE_DB ?? (fs.existsSync(legacyDb) ? legacyDb : path.join(process.env.VERCEL ? '/tmp' : rootDir, 'kord.db'));
 
 const store = new Store(dbPath);
 const nearCfg = loadNearConfig();
@@ -51,7 +53,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-mandate-account, x-mandate-timestamp, x-mandate-public-key, x-mandate-signature, x-mandate-auth-type, x-mandate-nonce');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-kord-account, x-kord-timestamp, x-kord-public-key, x-kord-signature, x-kord-auth-type, x-kord-nonce, x-mandate-account, x-mandate-timestamp, x-mandate-public-key, x-mandate-signature, x-mandate-auth-type, x-mandate-nonce');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -59,7 +61,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   }
 
   // Extract user account for isolation (or fallback to default user)
-  const userAccountHeader = (req.headers['x-mandate-account'] as string) || url.searchParams.get('account');
+  const userAccountHeader = (req.headers['x-kord-account'] as string) || (req.headers['x-mandate-account'] as string) || url.searchParams.get('account');
   const userAccount = (userAccountHeader ? userAccountHeader.trim().toLowerCase() : 'default-user.testnet');
 
   if (url.pathname.startsWith('/api/') && (!validAccount(userAccount) || (nearCfg.network === 'testnet' && userAccount.endsWith('.near')) || (nearCfg.network === 'mainnet' && userAccount.endsWith('.testnet')))) {
@@ -204,6 +206,12 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   // Conversation writes finish in durable storage before the client receives success.
   if (url.pathname === '/api/conversations') {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!['GET', 'POST', 'DELETE'].includes(req.method || '')) return json(405, { error: 'Method not allowed.' });
+    const body = req.method === 'GET' ? '' : await readBody(req);
+    try {
+      await verifyWalletRequest(agentWallet.provider, userAccount, req.method!, url.pathname + url.search, body, req.headers);
+    } catch { return json(401, { error: 'Connect and authorize your wallet to access private conversation history.' }); }
     if (req.method === 'GET') {
       try {
         const id = url.searchParams.get('id');
@@ -215,9 +223,6 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       } catch { return json(503, { error: 'Conversation history is temporarily unavailable. Try again shortly.' }); }
     }
     if (req.method === 'POST' || req.method === 'DELETE') {
-      let body = '';
-      req.on('data', chunk => { body += chunk; });
-      req.on('end', async () => {
         try {
           const payload = JSON.parse(body || '{}');
           if (typeof payload.id !== 'string' || !/^[a-zA-Z0-9_-]{1,120}$/.test(payload.id)) return json(400, { error: 'A valid conversation ID is required.' });
@@ -226,11 +231,9 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
             return json(deleted ? 200 : 404, deleted ? { success: true } : { error: 'Conversation not found.' });
           }
           if (!Array.isArray(payload.messages) || payload.messages.some((message: any) => !message || !['user','assistant'].includes(message.role))) return json(400, { error: 'A valid message array is required.' });
-          await store.saveConversation(payload.id, userAccount, String(payload.title || 'Mandate Session').slice(0,120), payload.messages);
+          await store.saveConversation(payload.id, userAccount, String(payload.title || 'KORD Session').slice(0,120), payload.messages);
           return json(200, { success: true });
         } catch { return json(503, { error: 'Conversation could not be saved. Your local backup will retry syncing.' }); }
-      });
-      return;
     }
     return json(405, { error: 'Method not allowed.' });
   }
@@ -286,7 +289,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
 
     try {
-      const refund = prompt.trim().match(/^(?:mandate\s+)?refund escrow (m_[a-f0-9]{40})$/i);
+      const refund = prompt.trim().match(/^(?:(?:kord|mandate)\s+)?refund escrow (m_[a-f0-9]{40})$/i);
       if (refund) {
         await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
         const operation = await verifiedEscrow.refund(userAccount, refund[1].toLowerCase());
@@ -298,24 +301,24 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       if (command) {
         if (command.action === 'deposit') {
           const deposit = await agentWallet.prepareDeposit(userAccount, command.asset, command.amount);
-          return json(200, { type: 'wallet_deposit', deposit, message: `Deposit **${command.amount} ${command.asset}** into your Mandate agent wallet. Sign the transfer in your linked wallet to complete it.` });
+          return json(200, { type: 'wallet_deposit', deposit, message: `Deposit **${command.amount} ${command.asset}** into your KORD agent wallet. Sign the transfer in your linked wallet to complete it.` });
         }
         await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
         if (command.action === 'send' && !(await store.isAllowed(command.recipient!, userAccount))) {
           if (/add\s+to\s+allowlist|approve/i.test(lower)) await store.addToAllowlist(command.recipient!, 'User approved payee', userAccount);
           else return json(200, { type: 'text', message: `Add \`${command.recipient}\` to your payable allowlist before sending funds.` });
         }
-        const id = 'chat-' + createHash('sha256').update(userAccount + body + String(req.headers['x-mandate-signature'])).digest('hex');
+        const id = 'chat-' + createHash('sha256').update(userAccount + body + String(req.headers['x-kord-signature'] || req.headers['x-mandate-signature'])).digest('hex');
         const operation = await agentWallet.execute(userAccount, { ...command, id });
         const receipts = operation.txHashes.map(hash => `[View transaction](${agentWallet.explorer(hash)})`).join(' · ');
         return json(200, { type: 'text', operation,
           message: operation.status === 'confirmed'
-            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? (operation.dex ? `Received **${decimal(BigInt(operation.dex.actualOutput!), operation.dex.outputDecimals)} ${command.asset === 'NEAR' ? 'Test USDT' : 'NEAR'}** through the testnet DEX. The funds remain in your agent wallet.\n\n` : 'The swapped funds remain in your agent wallet. This historical swap uses the demonstration treasury.\n\n') : ''}${receipts}`
+            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; KORD checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? (operation.dex ? `Received **${decimal(BigInt(operation.dex.actualOutput!), operation.dex.outputDecimals)} ${command.asset === 'NEAR' ? 'Test USDT' : 'NEAR'}** through the testnet DEX. The funds remain in your agent wallet.\n\n` : 'The swapped funds remain in your agent wallet. This historical swap uses the demonstration treasury.\n\n') : ''}${receipts}`
             : operation.status === 'failed'
               ? `**Transaction failed:** ${operation.error || 'The transaction was rejected.'}\n\n${receipts}\n\nOperation: \`${operation.id}\`.`
               : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
       }
-      if (/^(?:please\s+)?(?:mandate[, :]*)?\s*(?:stake|unstake|withdraw|deposit|swap|exchange|send|transfer|pay|fund)\b/i.test(lower)) {
+      if (/^(?:please\s+)?(?:(?:kord|mandate)[, :]*)?\s*(?:stake|unstake|withdraw|deposit|swap|exchange|send|transfer|pay|fund)\b/i.test(lower)) {
         return json(200, { type: 'text', message: 'Use a single command such as **Deposit 2 NEAR**, **Withdraw 5 USDT**, **Stake 1 NEAR**, **Unstake 3 USDT**, or **Send 2 USDT to alice.testnet**.' });
       }
     } catch (e: any) { return json(200, { type: 'text', message: e.message }); }
@@ -330,7 +333,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         type: 'text',
         message: `💧 **NEAR Testnet Faucet:**\n\n` +
           `You can request free Testnet NEAR by visiting **[near-faucet.io](https://near-faucet.io/)** (or clicking the **Faucet** button in the top navigation bar).\n\n` +
-          `Once claimed into your connected wallet, deposit the funds into your **Mandate Treasury** (Agentic Wallet) to authorize autonomous agent execution, token swaps, and policy transfers.`
+          `Once claimed into your connected wallet, deposit the funds into your **KORD Treasury** (Agentic Wallet) to authorize autonomous agent execution, token swaps, and policy transfers.`
       }));
     }
 
@@ -338,7 +341,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       try {
         const wallet = await agentWallet.snapshot(userAccount);
         return json(200, { type: 'text', ...wallet,
-          message: `**Mandate agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${Number(wallet.userUsdt).toFixed(2)} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
+          message: `**KORD agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${Number(wallet.userUsdt).toFixed(2)} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
       } catch (e: any) { return json(503, { type: 'text', message: e.message }); }
     }
 
@@ -367,23 +370,24 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         type: 'security_notice',
-        message: '🔒 Private keys are strictly quarantined in the backend and cannot be exported. Mandate executes transactions autonomously using its treasury and smart contract.'
+        message: '🔒 Private keys are strictly quarantined in the backend and cannot be exported. KORD executes transactions autonomously using its treasury and smart contract.'
       }));
     }
 
     // Case G: Greeting, Capabilities, and Conversational Inquiries
     const isGreeting = !researching && (/^(hello|hi|hey|greetings|howdy|good\s+(morning|afternoon|evening|day)|yo\b|sup\b)/i.test(lower) ||
                        ['hello', 'hi', 'hey', 'hello there', 'hi there', 'hey there'].includes(lower.trim()));
-    const isHelpOrCapabilities = /^explain agents[?!.]*$/i.test(lower) || (!researching && /^(what can you do|who are you|how does (?:this|mandate) work|help|what is mandate|what are your agents)/i.test(lower));
+    const isHelpOrCapabilities = /^explain agents[?!.]*$/i.test(lower) || (!researching && /^(what can you do|who are you|how does (?:this|kord|mandate) work|help|what is (?:kord|mandate)|what are your agents)/i.test(lower));
     const isSmallTalk = !researching && /^(how are you|what's up|whats up|how do you do|thanks|thank you|ok|okay|cool|nice)\b/i.test(lower);
 
     if (isGreeting || isHelpOrCapabilities || isSmallTalk) {
-      const greetingMsg = "I am **Mandate**, your NEAR wallet and public-source research workspace.\n\n" +
+      const greetingMsg = "I am **KORD**, your NEAR wallet and public-source research workspace.\n\n" +
         "- 🧭 **Orchestrator:** Plans the directive and records spending permissions.\n" +
         "- 🔍 **Researcher:** Searches online, reads relevant publications and follows policy pages and references to resolve evidence gaps. Source links are optional.\n" +
         "- 📊 **Analyst:** Builds cited answers and comparisons, calculates quantity estimates and prepares a recommendation.\n" +
         "- 🛡️ **Verifier:** Checks source integrity, freshness, coverage and calculations; releases explicitly requested testnet escrow after verification.\n\n" +
-        "Research uses no paid model or API. You can authorize a testnet NEAR research fee, released through escrow after verification. Private quotations and unpublished fees stay marked as missing.\n\n" +
+        (LocalAI.enabled() ? "A local model reasons about research plans, business evidence and verification, with no paid inference API. " : "Public-source research and deterministic evidence checks are available; local model reasoning is currently disabled. ") +
+        "You can specify an exact testnet NEAR research fee, released through escrow after verification. Private quotations and unpublished fees stay marked as missing.\n\n" +
         "Try **Research solar energy in Nigeria; research fee 0.01 NEAR**, or **Compare NEAR and USDT market prices and pool liquidity on Ref Finance**. An explicit testnet fee is released only after verification and wallet authorization.\n\n" +
         "Use **Deposit 2 NEAR**, **Swap 2 NEAR for USDT**, **Stake 1 NEAR** or **Unstake 1 NEAR** for wallet actions.";
 
@@ -398,15 +402,20 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         type: 'greeting',
-        message: 'Hello! How can I assist with your autonomous business mandates today? Type a mandate directive or try: *"Find three suppliers of 100 office chairs..."*'
+        message: 'Hello! How can KORD assist with your autonomous business today? Type a directive or try: *"Find three suppliers of 100 office chairs..."*'
       }));
     }
 
-    // Case H: Autonomous Business Mandate Execution
+    // Case H: Autonomous Business KORD Execution
     const streaming = payload.stream === true;
     const writeEvent = (event: unknown) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
     try {
-      if (/past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt)) await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+      let recheckAuthorization: (() => Promise<void>) | undefined;
+      const needsOwnership = LocalAI.enabled() || /past purchase|audit.*ledger|past transaction|previous spend/i.test(prompt);
+      if (needsOwnership || req.headers['x-kord-signature'] || req.headers['x-mandate-signature']) {
+        try { recheckAuthorization = await authorizeWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers); }
+        catch { return json(401, { error: 'Connect and authorize your wallet before running local reasoning or accessing private wallet history.' }); }
+      }
       if (streaming) {
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'X-Accel-Buffering': 'no' });
         res.flushHeaders();
@@ -425,7 +434,8 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           return { text: auditWalletReceipt(operation, receipt, agentWallet.identity(userAccount).accountId, signerId, { NEAR: agentWallet.nearPool, USDT: agentWallet.usdtPool }), url: agentWallet.explorer(hash) };
         },
         settleEscrow: async request => {
-          await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
+          if (recheckAuthorization) await recheckAuthorization();
+          else await verifyWalletRequest(agentWallet.provider, userAccount, 'POST', url.pathname, body, req.headers);
           if (!(await store.isAllowed(request.recipient, userAccount))) throw new Error('Add the escrow recipient to your payable allowlist first.');
           return verifiedEscrow.settle(userAccount, request);
         },
@@ -468,6 +478,6 @@ export default handleRequest;
 if (!process.env.VERCEL) {
   const server = http.createServer(handleRequest);
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Mandate] Running at http://localhost:${PORT}`);
+    console.log(`[KORD] Running at http://localhost:${PORT}`);
   });
 }

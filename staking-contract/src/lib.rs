@@ -97,7 +97,7 @@ impl Staking {
         p.unstaked -= amount.0;
         p.withdrawing = true;
         self.positions.insert(owner.clone(), p);
-        Promise::new(self.token_id.clone()).function_call("ft_transfer", json!({"receiver_id": owner, "amount": amount, "memo": "Mandate unstaked Test USDT"}).to_string().into_bytes(), NearToken::from_yoctonear(1), Gas::from_tgas(30))
+        Promise::new(self.token_id.clone()).function_call("ft_transfer", json!({"receiver_id": owner, "amount": amount, "memo": "KORD unstaked Test USDT"}).to_string().into_bytes(), NearToken::from_yoctonear(1), Gas::from_tgas(30))
             .then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(15)).on_withdraw(owner, amount))
     }
 

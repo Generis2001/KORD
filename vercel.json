@@ -1,1 +1,1 @@
-{"version": 2, "functions": { "api/**/*.ts": { "maxDuration": 60 } }}
+{"version": 2, "functions": { "api/**/*.ts": { "maxDuration": 300 } }}

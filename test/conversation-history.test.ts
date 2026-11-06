@@ -19,7 +19,7 @@ function fixture() {
   let online = true;
   const request = vi.fn(async (url: string, options: any = {}) => {
     if (!online) throw new Error('Offline');
-    const account = options.headers['x-mandate-account'];
+    const account = options.headers['x-kord-account'] || options.headers['x-mandate-account'];
     const payload = options.body && JSON.parse(options.body);
     if (options.method === 'POST') {
       remote.set(account + '/' + payload.id, { ...payload, updatedAt: new Date().toISOString() });

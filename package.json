@@ -1,9 +1,9 @@
 {
-  "name": "mandate",
+  "name": "kord",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Autonomous business agent that delegates work, pays for verified deliverables, and enforces user-defined spending limits on NEAR.",
+  "description": "Programmable control for autonomous agents: business research, verified deliverables, and explicit research fees with spending limits on NEAR.",
   "scripts": {
     "build": "node scripts/build-wallet.mjs",
     "postinstall": "npm run build",
@@ -16,7 +16,11 @@
     "dex:setup": "tsx scripts/testnet-dex-setup.ts",
     "gen-keys": "tsx scripts/gen-keys.ts",
     "escrow:setup": "tsx scripts/escrow-setup.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "model:start": "node scripts/local-model.mjs start",
+    "model:expose": "node scripts/local-model.mjs expose",
+    "model:status": "node scripts/local-model.mjs status",
+    "model:stop": "node scripts/local-model.mjs stop"
   },
   "dependencies": {
     "@meteorwallet/sdk": "3.24.1",
@@ -35,5 +39,6 @@
     "tsx": "^4.23.15",
     "typescript": "^5.8.2",
     "vitest": "^5.0.5"
-  }
+  },
+  "license": "MIT"
 }

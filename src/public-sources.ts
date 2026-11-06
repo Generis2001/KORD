@@ -32,7 +32,7 @@ export async function loadPublicPage(value: string, redirects = 0, timeoutMs = 6
   const response = await new Promise<{ status: number; headers: IncomingHttpHeaders; bytes: Buffer }>((resolve, reject) => {
     const request = https.get(url, {
       autoSelectFamily: false,
-      headers: { 'User-Agent': 'Mandate/1.0 public-source-research', Accept: 'text/html,application/json,text/plain', 'Accept-Encoding': 'identity' },
+      headers: { 'User-Agent': 'KORD/1.0 public-source-research', Accept: 'text/html,application/json,text/plain', 'Accept-Encoding': 'identity' },
       lookup: ((host: string, _options: unknown, callback: any) => {
         lookup(host, { all: true }).then(addresses => {
           const target = addresses.find(entry => publicAddress(entry.address));

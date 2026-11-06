@@ -1655,7 +1655,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mandate-escrow"
+name = "kord-escrow"
 version = "0.1.0"
 dependencies = [
  "near-sdk",

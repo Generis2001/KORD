@@ -35,8 +35,8 @@
         if (done) { event(buffer); break; }
       }
     } finally { reader.releaseLock(); }
-    if (!result) throw new Error('The response was interrupted before the final report. Check wallet receipts before retrying a paid mandate.');
+    if (!result) throw new Error('The response was interrupted before the final report. Check wallet receipts before retrying a paid KORD directive.');
     return result;
   }
-  window.MandateChat = { check, read, matchesGoal };
+  window.KordChat = { check, read, matchesGoal };
 })();

@@ -1,8 +1,8 @@
 [package]
-name = "mandate-escrow"
+name = "kord-escrow"
 version = "0.1.0"
 edition = "2021"
-description = "Mandate: onchain escrow that enforces budget, per-agent cap, allowlist and verifier-only release."
+description = "KORD: onchain escrow that enforces budget, per-agent cap, allowlist and verifier-only release."
 
 [lib]
 crate-type = ["cdylib", "rlib"]

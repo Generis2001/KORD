@@ -5,10 +5,10 @@ import { TestnetDex } from './dex.js';
 import { decimal } from './amounts.js';
 
 export const TEST_USDT_TOKEN_ID = process.env.TEST_USDT_TOKEN_ID || "usdt.fakes.testnet";
-export const TEST_USDT_NAME = "Mandate Test USDT";
+export const TEST_USDT_NAME = "KORD Test USDT";
 export const TEST_USDT_SYMBOL = "USDT (Testnet)";
 export const TEST_USDT_DECIMALS = 6;
-export const TEST_USDT_DISCLAIMER = "Mandate Test USDT is a testnet development asset and is not issued by Tether. It has no real monetary value and is not redeemable for US dollars.";
+export const TEST_USDT_DISCLAIMER = "KORD Test USDT is a testnet development asset and is not issued by Tether. It has no real monetary value and is not redeemable for US dollars.";
 
 /** Demonstration exchange rate: 1 NEAR = 5.00 Test USDT */
 export const DEMO_EXCHANGE_RATE = 5.0;

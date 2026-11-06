@@ -54,16 +54,16 @@ export function researchPlan(goal: string) {
   const urls = [...new Set((goal.match(/https:\/\/[^\s<>"')]+/g) || []).map(url => url.replace(/[.,;]+$/, '')))];
   const withoutUrls = goal.replace(/https:\/\/\S+/g, '').replace(/;?\s*escrow\s+\d+(?:\.\d+)?\s+NEAR\s+to\s+\S+/gi, '').replace(/(?:you may|spend|budget|up to|no more than)[^.]*[$£€]\s*\d+(?:\.\d+)?[^.]*/gi, '');
   const subjectInput = withoutUrls.replace(/^(?:compare|research|analy[sz]e)\s+(?:the\s+)?(?:published\s+)?(?:prices?|pricing|benefits?|risks?|advantages?|disadvantages?)[\s\S]*?\b(?:for|of)\s+/i, '');
-  const subject = subjectInput.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|analy[sz]e|verify|explain|summari[sz]e|investigate|identify|gather|published|public|online|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|mandate|quotations?|quotes?|what is|how does|tell me about|benefits?|risks?|advantages?|disadvantages?|pros|cons)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim().replace(/^[.,;:]+\s*|[.,;]+$/g, '');
+  const subject = subjectInput.replace(/,\s*(?:compare|prepare|and prepare)\b[\s\S]*$/i, '').replace(/\b(find|compare|research|analy[sz]e|verify|explain|summari[sz]e|investigate|identify|gather|published|public|online|prices?|pricing|suppliers?|vendors?|of|for|at|the|and|three|two|please|kord|mandate|quotations?|quotes?|what is|how does|tell me about|benefits?|risks?|advantages?|disadvantages?|pros|cons)\b/gi, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim().replace(/^[.,;:]+\s*|[.,;]+$/g, '');
   const quantity = Number(withoutUrls.match(/\b(\d+)\s+(?:office\s+)?(?:chairs?|laptops?|units?|items?)/i)?.[1] || 1);
   const requestedCount = withoutUrls.match(/\b(three|two|one|\d+)\s+(?:suppliers?|vendors?|providers?|sources?)/i)?.[1]?.toLowerCase();
   const count = requestedCount ? ({ three: 3, two: 2, one: 1 } as Record<string, number>)[requestedCount] || Number(requestedCount) : Math.max(urls.length, 2);
   return { urls, subject, quantity, minimumSources: count, negotiated: /negotiated|bulk quotes?|volume quotes?|100[- ]unit.*quote/i.test(goal) };
 }
 
-export async function researchPublicSources(goal: string, load: SourceLoader = loadPublicPage, onActivity?: (title: string, detail: string) => void): Promise<ResearchResult> {
+export async function researchPublicSources(goal: string, load: SourceLoader = loadPublicPage, onActivity?: (title: string, detail: string) => void, options: { queries?: string[]; deadline?: number } = {}): Promise<ResearchResult> {
   const plan = researchPlan(goal), requirements = evidenceRequirements(goal), sources: ResearchSource[] = [], searches: SearchAttempt[] = [];
-  const seen = new Set<string>(), frontier = new Map<string, { url: string }>(), deadline = Date.now() + 38_000;
+  const seen = new Set<string>(), frontier = new Map<string, { url: string }>(), deadline = Math.min(Date.now() + 38_000, options.deadline ?? Infinity);
   const namedNear = /\bNEAR\b/.test(plan.subject) || /\bnear protocol\b/i.test(plan.subject);
   if (!topicTerms(plan.subject).length && !namedNear) return { ...plan, sources, searches, findings: [], gaps: ['A specific research topic or question is needed.'], followUpQuestions: ['What subject or question should I research?'], pricesRequested: requirements.prices, requestedFacets: requirements.facets };
   const linkTerms = new RegExp([...topicTerms(plan.subject).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'documentation', 'docs', 'protocol'].join('|'), 'i');
@@ -108,7 +108,7 @@ export async function researchPublicSources(goal: string, load: SourceLoader = l
   let initial = plan.urls;
   if (!initial.length) {
     onActivity?.('Searching the web', 'Searching independent public indexes; links are optional and search snippets are not evidence.');
-    const queries = [plan.subject + (requirements.prices ? ' published prices' : ''), plan.subject + ' ' + (requirements.facets[0] || 'official sources')];
+    const queries = [plan.subject + (requirements.prices ? ' published prices' : ''), ...(options.queries || []), plan.subject + ' ' + (requirements.facets[0] || 'official sources')].slice(0, 4);
     initial = [...bootstrap, ...await discoverSources([...new Set(queries)], bounded, searches)];
   }
   await collect(initial.map(url => ({ url })));
@@ -204,7 +204,7 @@ export function analyzeResearch(research: ResearchResult) {
   const comparable = rows.filter(row => row.kind === 'published price' && row.value && row.currency);
   const currencies = new Set(comparable.map(row => row.currency));
   const lowest = currencies.size === 1 && comparable.length >= 2 ? [...comparable].sort((a,b) => comparePrices(a.value, b.value))[0] : undefined;
-  const recommendation = rows.some(row => row.kind === 'market price') ? 'These are public NEAR mainnet market observations. Pool reserves and TVL are not private fiat corridor liquidity. Testnet Mandate USDT is a separate demonstration token; this research does not trade or move funds.'
+  const recommendation = rows.some(row => row.kind === 'market price') ? 'These are public NEAR mainnet market observations. Pool reserves and TVL are not private fiat corridor liquidity. KORD Test USDT is a separate demonstration token; this research does not trade or move funds.'
     : lowest ? `Lowest observed published price: **${markdown(lowest.label)}**, ${lowest.value} ${lowest.currency}. Confirm the exact specification, shipping, tax, stock and any quantity discount with the vendor before purchasing.`
     : 'The sources do not establish a comparable lowest supplier price. Compare specifications and obtain any missing commercial terms before committing funds.';
   const liquidity = research.sources.filter(source => source.url === REF_POOLS).flatMap(source => {

@@ -3,12 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mandate — Your intent, in motion.</title>
+  <title>KORD — Programmable control for autonomous agents</title>
   <meta name="description" content="Your onchain workspace. Move funds, swap tokens, and delegate work with spending limits you control.">
   <meta name="theme-color" content="#f7faee">
-  <link rel="icon" href="assets/mandate-favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/kord-favicon.svg" type="image/svg+xml">
   <script>
-    try { document.documentElement.dataset.theme = localStorage.getItem('mandate_theme') === 'dark' ? 'dark' : 'light'; } catch {}
+    // Preserve browser settings, authorization keys and saved chats from the previous brand.
+    try {
+      if (localStorage.getItem('kord_storage_migrated_v1') !== 'true') {
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('mandate_')) {
+            const replacement = 'kord_' + key.slice(8);
+            if (localStorage.getItem(replacement) === null) localStorage.setItem(replacement, localStorage.getItem(key));
+          }
+        }
+        localStorage.setItem('kord_storage_migrated_v1', 'true');
+      }
+    } catch {}
+    try { document.documentElement.dataset.theme = localStorage.getItem('kord_theme') === 'dark' ? 'dark' : 'light'; } catch {}
   </script>
   <link rel="stylesheet" href="style.css">
   <script src="ui.js" defer></script>
@@ -17,9 +29,9 @@
   <div class="app-container">
     <aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
       <div class="sidebar-brand-row">
-        <a class="brand-wrap" href="/" aria-label="Mandate home">
-          <svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg>
-          <span class="brand-title">mandate</span>
+        <a class="brand-wrap" href="/" aria-label="KORD home">
+          <svg class="kord-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/kord-mark.svg#mark"/></svg>
+          <span class="brand-title">KORD</span>
         </a>
         <button class="sidebar-toggle-btn" id="sidebarCloseBtn" title="Close sidebar" aria-label="Close sidebar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
@@ -113,7 +125,7 @@
           </div>
         </div>
         <div class="sidebar-wallet-card agent-wallet-card" id="sidebarAgentCard" style="display:none;">
-          <div class="wallet-badge-header"><span class="wallet-caption">Mandate agent wallet</span><button class="btn-disconnect-sm" id="manageAgentWalletBtn">Manage ↗</button></div>
+          <div class="wallet-badge-header"><span class="wallet-caption">KORD agent wallet</span><button class="btn-disconnect-sm" id="manageAgentWalletBtn">Manage ↗</button></div>
           <div class="wallet-token-balances">
             <div class="token-balance-chip"><div class="token-chip-left"><img src="assets/near.png" alt="" class="token-logo-img"><span class="token-chip-label">NEAR</span></div><span class="token-chip-amount" id="sidebarNearBalance">—</span></div>
             <div class="token-balance-chip"><div class="token-chip-left"><img src="assets/usdt.png" alt="" class="token-logo-img"><span class="token-chip-label">Test USDT</span></div><span class="token-chip-amount" id="sidebarUsdtBalance">—</span></div>
@@ -131,7 +143,7 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
           </button>
           <div class="workspace-breadcrumb"><span>Workspace</span><span class="breadcrumb-separator">/</span><span class="breadcrumb-current">Agent chat</span></div>
-          <a class="mobile-brand brand-wrap" href="/" aria-label="Mandate home"><svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg><span class="brand-title">mandate</span></a>
+          <a class="mobile-brand brand-wrap" href="/" aria-label="KORD home"><svg class="kord-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/kord-mark.svg#mark"/></svg><span class="brand-title">KORD</span></a>
         </div>
         <div class="right-nav">
           <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="header-faucet-btn" id="headerFaucetBtn" title="Get testnet NEAR">
@@ -148,8 +160,8 @@
 
       <div class="chat-container" id="chatContainer">
         <div class="hero-screen" id="heroScreen">
-          <div class="hero-emblem" aria-hidden="true"><svg class="mandate-mark" viewBox="0 0 48 48"><use href="assets/mandate-mark.svg#mark"/></svg></div>
-          <div class="hero-eyebrow"><span class="terminal-prompt" aria-hidden="true">&gt;_</span> YOUR INTENT, IN MOTION</div>
+          <div class="hero-emblem" aria-hidden="true"><svg class="kord-mark" viewBox="0 0 48 48"><use href="assets/kord-mark.svg#mark"/></svg></div>
+          <div class="hero-eyebrow"><span class="terminal-prompt" aria-hidden="true">&gt;_</span> PROGRAMMABLE CONTROL FOR AUTONOMOUS AGENTS</div>
         </div>
         <div class="messages-stream" id="messagesStream" role="log" aria-label="Conversation" aria-live="polite"></div>
       </div>
@@ -157,9 +169,9 @@
       <footer class="input-area">
         <div class="input-wrapper">
           <div class="input-box">
-            <textarea id="promptInput" placeholder="What would you like to set in motion?" rows="2" aria-label="Message Mandate"></textarea>
+            <textarea id="promptInput" placeholder="What would you like to set in motion?" rows="2" aria-label="Message KORD"></textarea>
             <div class="composer-toolbar">
-              <div class="composer-agent"><svg class="mandate-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/mandate-mark.svg#mark"/></svg><span>Mandate agent</span><span class="composer-network">NEAR Testnet</span></div>
+              <div class="composer-agent"><svg class="kord-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="assets/kord-mark.svg#mark"/></svg><span>KORD agent</span><span class="composer-network">NEAR Testnet</span></div>
               <div class="composer-send"><span class="enter-hint"><kbd>↵</kbd> to send</span><button class="send-btn" id="sendBtn" title="Send message" aria-label="Send message"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
             </div>
           </div>
@@ -209,12 +221,12 @@
     </div>
   </div>
 
-  <!-- MODAL: Mandate Agent Wallet -->
+  <!-- MODAL: KORD Agent Wallet -->
   <div class="modal-backdrop" id="fundModal">
     <div class="modal-card agent-wallet-modal">
-      <div class="modal-header"><div class="modal-title-wrap"><h2>Mandate agent wallet</h2></div><button class="modal-close" id="closeFundModal" aria-label="Close agent wallet">×</button></div>
+      <div class="modal-header"><div class="modal-title-wrap"><h2>KORD agent wallet</h2></div><button class="modal-close" id="closeFundModal" aria-label="Close agent wallet">×</button></div>
       <div class="agent-wallet-body">
-        <p class="wallet-help">Your agent's own wallet. Deposit NEAR or Test USDT, then swap, send, or stake with a mandate.</p>
+        <p class="wallet-help">Your agent's own wallet. Deposit NEAR or Test USDT, then swap, send, or stake with a KORD directive.</p>
         <div class="agent-address-row"><a id="agentWalletAddress" target="_blank" rel="noopener noreferrer">Link your wallet to view the address</a><button class="btn-subtle" id="copyAgentAddressBtn" aria-label="Copy agent wallet address">Copy</button></div>
         <div class="agent-balance-grid">
           <div class="agent-asset"><div class="token-chip-left"><img src="assets/near.png" alt="" class="token-logo-img"><strong>NEAR</strong></div><span class="agent-amount" id="agentNearAvailable">—</span><span>Available</span><small>Staked <strong id="agentNearStaked">—</strong></small><small>Unstaking <strong id="agentNearPending">—</strong></small></div>
@@ -271,13 +283,13 @@
   </div>
 
 
-  <!-- MODAL: Mandate Account Manager (Multi-User Isolation) -->
+  <!-- MODAL: KORD Account Manager (Multi-User Isolation) -->
   <div class="modal-backdrop" id="accountModal">
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-wrap">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-          <h2>Mandate Accounts</h2>
+          <h2>KORD Accounts</h2>
         </div>
         <button class="modal-close" id="closeAccountModal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -288,7 +300,7 @@
         <!-- Active User Details -->
         <div style="background: var(--success-soft); border: 1px solid var(--success-border); border-radius: 10px; padding: 12px 14px; display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); font-weight:600; letter-spacing:0.5px;">Active Mandate Profile</div>
+            <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); font-weight:600; letter-spacing:0.5px;">Active KORD Profile</div>
             <div style="font-size:14px; font-weight:600; color:var(--text-primary); font-family:var(--font-mono);" id="modalActiveAccountName">generis.testnet</div>
           </div>
           <div style="text-align:right;">
@@ -299,7 +311,7 @@
 
         <!-- Create New Account -->
         <div>
-          <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Create New Mandate Account</label>
+          <label style="font-size:12.5px; font-weight:600; color:var(--text-primary); display:block; margin-bottom:6px;">Create New KORD Account</label>
           <div style="display:flex; gap:8px;">
             <input type="text" id="newAccountIdInput" placeholder="Account ID (e.g. acme-ops.testnet)" class="form-control" style="font-family:var(--font-mono); font-size:13px;">
             <button class="btn-primary" id="createAccountBtn" style="white-space:nowrap;">Create Account</button>
@@ -367,7 +379,7 @@
               <img src="assets/near-faucet-logo.svg" alt="NEAR Faucet" style="width:28px; height:28px; border-radius:50%; box-shadow:0 0 10px var(--border-subtle);">
               <div>
                 <div style="font-size:13px; font-weight:600; color:var(--text-primary);">Need Testnet NEAR?</div>
-                <div style="font-size:11px; color:var(--text-muted);">Claim testnet NEAR into your connected wallet to power the Mandate Treasury.</div>
+                <div style="font-size:11px; color:var(--text-muted);">Claim testnet NEAR into your connected wallet to power the KORD Treasury.</div>
               </div>
             </div>
             <a href="https://near-faucet.io/" target="_blank" rel="noopener noreferrer" class="btn-subtle" style="display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; text-decoration:none; padding:6px 12px; color:var(--accent-text); border-color:var(--border-subtle); border-radius:6px; white-space:nowrap;">
@@ -421,7 +433,7 @@
       <div style="overflow-y:auto; padding: 18px 24px; display:flex; flex-direction:column; gap:16px;">
         <!-- Prominent Testnet Asset Notice -->
         <div style="background:var(--warning-soft); border:1px solid var(--warning-border); border-radius:10px; padding:12px 16px; font-size:12.5px; color:var(--warning); line-height:1.5;">
-          <strong>Testnet asset</strong> Mandate Test USDT (<code>usdt.fakes.testnet</code>) is a testnet development asset and is not issued by Tether. It has no real monetary value and is not redeemable for US dollars.
+          <strong>Testnet asset</strong> KORD Test USDT (<code>usdt.fakes.testnet</code>) is a testnet development asset and is not issued by Tether. It has no real monetary value and is not redeemable for US dollars.
         </div>
 
         <!-- Main Swap Container: Grid of Form & Safeguards -->
@@ -480,7 +492,7 @@
             <div style="margin-top:4px; display:flex; align-items:flex-start; gap:8px; font-size:12px; color:var(--text-secondary);">
               <input type="checkbox" id="swapAuthCheck" style="margin-top:2px;">
               <label for="swapAuthCheck" style="cursor:pointer; line-height:1.4;">
-                I authorize Mandate to swap NEAR for Test USDT within my agent wallet.
+                I authorize KORD to swap NEAR for Test USDT within my agent wallet.
               </label>
             </div>
 

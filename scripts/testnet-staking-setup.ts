@@ -12,7 +12,7 @@ if (!validAccount(contractId) || !contractId.endsWith(`.${cfg.accountId}`)) thro
 const provider = new JsonRpcProvider({ url: cfg.rpcUrl });
 const account = new Account(cfg.accountId, provider, cfg.privateKey as KeyPairString);
 const key = KeyPair.fromString(cfg.privateKey as KeyPairString);
-const wasm = await readFile('staking-contract/target/wasm32-unknown-unknown/release/mandate_testnet_staking.wasm');
+const wasm = await readFile('staking-contract/target/wasm32-unknown-unknown/release/kord_testnet_staking.wasm');
 if (process.argv.includes('--redeploy')) {
   const contract = new Account(contractId, provider, cfg.privateKey as KeyPairString);
   const result = await contract.signAndSendTransaction({ receiverId: contractId, actions: [actions.deployContract(wasm)] });

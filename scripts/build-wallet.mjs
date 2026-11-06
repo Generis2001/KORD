@@ -7,7 +7,7 @@ await build({
   minify: true,
   platform: 'browser',
   format: 'iife',
-  globalName: 'mandateMeteor',
+  globalName: 'kordMeteor',
   target: 'es2022',
   define: { 'global': 'globalThis', 'process.env.NODE_ENV': '"production"' },
   inject: ['scripts/browser-shims.js'],
