@@ -4,7 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mandate — Your intent, in motion.</title>
-  <meta name="description" content="Your onchain workspace. Move funds, swap tokens, and delegate work with spending limits you control.">
+  <meta name="description" content="Mandate is an onchain workspace on NEAR for DeFi, specialist-agent payments, and autonomous business research with spending limits you control.">
+  <meta property="og:title" content="Mandate — Your intent, in motion.">
+  <meta property="og:description" content="Move funds, swap tokens, delegate research, and pay for verified work on NEAR within spending limits you control.">
+  <meta property="og:url" content="https://mandateme.vercel.app">
+  <meta property="og:type" content="website">
   <meta name="theme-color" content="#f7faee">
   <link rel="icon" href="assets/mandate-favicon.svg" type="image/svg+xml">
   <script>
@@ -446,15 +450,16 @@
 
             <!-- Rate Pill -->
             <div style="display:flex; justify-content:space-between; align-items:center; background:var(--success-soft); border:1px solid var(--success-border); border-radius:8px; padding:8px 12px; font-size:12px; color:var(--success);">
-              <span>Live testnet DEX quote · <strong>price changes with pool reserves</strong></span>
-              <span style="font-size:11px; opacity:0.8;">Ref Finance</span>
+              <strong id="swapRateText">Fetching rate…</strong>
+              <button class="btn-subtle" id="refreshSwapQuoteBtn" type="button" style="font-size:11px;">Refresh quote</button>
             </div>
+            <div id="swapQuoteSourceText" style="font-size:11px; color:var(--text-muted); line-height:1.5;">Live market reference · testnet settlement</div>
 
             <!-- Estimated Output -->
             <div>
-              <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Agent wallet receives</label>
+              <label for="swapOutputUsdt" style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Estimated Test USDT received</label>
               <div style="display:flex; gap:8px; margin-top:6px;">
-                <input type="text" id="swapOutputUsdt" class="form-control" readonly placeholder="Live DEX quote" style="font-size:15px; font-weight:700; color:var(--success); font-family:var(--font-mono); background:var(--bg-inset);">
+                <input type="text" id="swapOutputUsdt" class="form-control" readonly aria-label="Estimated Test USDT received" placeholder="Current swap quote" style="font-size:15px; font-weight:700; color:var(--success); font-family:var(--font-mono); background:var(--bg-inset);">
                 <div style="display:flex; align-items:center; gap:6px; background:var(--bg-inset); padding:0 14px; border-radius:8px; border:1px solid var(--border-subtle); font-weight:700; color:var(--success); font-size:13px;">
     <img src="assets/usdt.png" alt="USDT" style="width:16px; height:16px; border-radius:3px;"> Test USDT
   </div>
@@ -472,8 +477,9 @@
 
             <!-- Minimum Output (Slippage) -->
             <div>
-              <label style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Minimum Acceptable Output</label>
-              <input type="number" id="swapMinOutput" class="form-control" step="0.000001" placeholder="Minimum from live quote" style="margin-top:6px; font-family:var(--font-mono); font-size:13px;">
+              <label for="swapMinOutput" style="font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Minimum received (Test USDT)</label>
+              <input type="number" id="swapMinOutput" class="form-control" step="0.000001" min="0.000001" placeholder="Minimum from live quote" style="margin-top:6px; font-family:var(--font-mono); font-size:13px;">
+              <p id="swapQuoteStatus" role="status" aria-live="polite" style="font-size:11px; color:var(--text-muted); line-height:1.5; margin:6px 0 0;"></p>
             </div>
 
             <!-- Authorization Checkbox -->
@@ -500,12 +506,16 @@
                   <strong style="color:var(--text-primary);">20.00 NEAR max</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:var(--text-muted);">Your Available Quota:</span>
+                  <span style="color:var(--text-muted);">Agent available balance:</span>
                   <strong style="color:var(--success);" id="swapUserQuotaText">Loading...</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
-                  <span style="color:var(--text-muted);">Token Liquidity Pool:</span>
+                  <span style="color:var(--text-muted);">Test USDT liquidity:</span>
                   <strong style="color:var(--success);" id="swapPoolLiquidityText">Loading...</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; gap:12px;">
+                  <span style="color:var(--text-muted);">Swap fee:</span>
+                  <strong id="swapFeeText" style="text-align:right;">—</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between;">
                   <span style="color:var(--text-muted);">Contract Standard:</span>

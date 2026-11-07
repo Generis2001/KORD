@@ -85,6 +85,14 @@ describe('reserve-based testnet DEX', () => {
     expect(() => deliveredOutput({ receipts_outcome: [{ outcome: { executor_id: 'forged.testnet', logs: ['Transfer 4500000 from ' + dex + ' to alice.testnet'] } }] }, quote, 'alice.testnet')).toThrow('receipt');
     expect(deliveredOutput({ receipts_outcome: [{ outcome: { executor_id: token, logs: ['Transfer 4500000 from ' + dex + ' to alice.testnet'] } }] }, quote, 'alice.testnet')).toBe(4500000n);
   });
+  it('counts one transfer once when both token log formats or duplicate receipts are present', async () => {
+    const quote = await new TestnetDex(cfg, token, read).quote('NEAR', '1');
+    const receipt = { id: 'same-receipt', outcome: { executor_id: token, logs: [
+      'Transfer 4500000 from ' + dex + ' to alice.testnet',
+      'EVENT_JSON:' + JSON.stringify({ standard: 'nep141', event: 'ft_transfer', data: [{ old_owner_id: dex, new_owner_id: 'alice.testnet', amount: '4500000' }] }),
+    ] } };
+    expect(deliveredOutput({ receipts_outcome: [receipt, receipt] }, quote, 'alice.testnet')).toBe(4500000n);
+  });
   it('resumes a wrapped NEAR input when the swap fails before signing', async () => {
     const normal = vi.mocked(wallet.call).getMockImplementation()!;
     let fail = true;

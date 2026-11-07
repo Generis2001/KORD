@@ -100,6 +100,11 @@ function getApiHeaders() {
   };
 }
 
+function formatUsdtAmount(value) {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(String(value));
+  return match ? match[1] + '.' + (match[2] || '').padEnd(6, '0').slice(0, 6) : '—';
+}
+
 // Sidebar toggle
 if (sidebarOpenBtn) sidebarOpenBtn.addEventListener('click', () => sidebar.classList.remove('collapsed'));
 if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', () => sidebar.classList.add('collapsed'));
@@ -199,11 +204,11 @@ async function loadTreasuryBalance() {
       row.appendChild(button); recovery.appendChild(row);
     }
     updateTreasuryUI(data.formatted);
-    const values = { sidebarNearBalance: Number(data.balanceNear).toFixed(4), sidebarUsdtBalance: Number(data.userUsdt).toFixed(2),
-      linkedNearBalance: Number(data.linked.near).toFixed(4), linkedUsdtBalance: Number(data.linked.usdt).toFixed(2),
-      modalConnectedBalance: Number(data.linked.near).toFixed(4) + ' NEAR', agentNearAvailable: Number(data.balanceNear).toFixed(4), agentUsdtAvailable: Number(data.userUsdt).toFixed(2),
-      agentNearStaked: Number(data.staking.NEAR.staked).toFixed(4), agentUsdtStaked: Number(data.staking.USDT.staked).toFixed(2),
-      agentNearPending: Number(data.staking.NEAR.unstaked).toFixed(4), agentUsdtPending: Number(data.staking.USDT.unstaked).toFixed(2) };
+    const values = { sidebarNearBalance: Number(data.balanceNear).toFixed(4), sidebarUsdtBalance: formatUsdtAmount(data.userUsdt),
+      linkedNearBalance: Number(data.linked.near).toFixed(4), linkedUsdtBalance: formatUsdtAmount(data.linked.usdt),
+      modalConnectedBalance: Number(data.linked.near).toFixed(4) + ' NEAR', agentNearAvailable: Number(data.balanceNear).toFixed(4), agentUsdtAvailable: formatUsdtAmount(data.userUsdt),
+      agentNearStaked: Number(data.staking.NEAR.staked).toFixed(4), agentUsdtStaked: formatUsdtAmount(data.staking.USDT.staked),
+      agentNearPending: Number(data.staking.NEAR.unstaked).toFixed(4), agentUsdtPending: formatUsdtAmount(data.staking.USDT.unstaked) };
     for (const [id, value] of Object.entries(values)) { const el = document.getElementById(id); if (el) el.textContent = value; }
     const address = document.getElementById('agentWalletAddress');
     address.textContent = data.accountId;
@@ -867,8 +872,8 @@ async function handleSubmit() {
     }
     if (data && data.userUsdt !== undefined) {
       const sidebarUsdt = document.getElementById('sidebarUsdtBalance');
-      if (sidebarUsdt) sidebarUsdt.textContent = Number(data.userUsdt).toFixed(2);
-      if (currentAccount) localStorage.setItem('mandate_bal_usdt_' + currentAccount, Number(data.userUsdt).toFixed(2));
+      if (sidebarUsdt) sidebarUsdt.textContent = formatUsdtAmount(data.userUsdt);
+      if (currentAccount) localStorage.setItem('mandate_bal_usdt_' + currentAccount, formatUsdtAmount(data.userUsdt));
     }
     loadTreasuryBalance();
     loadLedger();
@@ -1194,6 +1199,11 @@ const btnExecuteSwap = document.getElementById('btnExecuteSwap');
 
 const swapUserQuotaText = document.getElementById('swapUserQuotaText');
 const swapPoolLiquidityText = document.getElementById('swapPoolLiquidityText');
+const swapRateText = document.getElementById('swapRateText');
+const swapQuoteSourceText = document.getElementById('swapQuoteSourceText');
+const swapFeeText = document.getElementById('swapFeeText');
+const swapQuoteStatus = document.getElementById('swapQuoteStatus');
+const refreshSwapQuoteBtn = document.getElementById('refreshSwapQuoteBtn');
 const useConnectedWalletBtn = document.getElementById('useConnectedWalletBtn');
 
 const swapStepperCard = document.getElementById('swapStepperCard');
@@ -1254,35 +1264,65 @@ if (swapInputNear) {
 let swapQuoteVersion = 0;
 let swapQuoteReady = false;
 let swapInFlight = false;
+let swapQuoteExpiresAt = 0;
+let swapQuoteExpiryTimer;
+if (refreshSwapQuoteBtn) refreshSwapQuoteBtn.addEventListener('click', updateSwapQuote);
 async function updateSwapQuote() {
   if (!swapInputNear) return;
   const version = ++swapQuoteVersion;
   swapQuoteReady = false;
+  swapQuoteExpiresAt = 0;
+  clearTimeout(swapQuoteExpiryTimer);
   if (btnExecuteSwap) btnExecuteSwap.disabled = true;
+  if (swapQuoteStatus) swapQuoteStatus.textContent = 'Fetching a current quote…';
+  if (swapRateText) swapRateText.textContent = 'Fetching rate…';
+  if (swapQuoteSourceText) swapQuoteSourceText.textContent = 'Fetching price source…';
+  if (swapFeeText) swapFeeText.textContent = '—';
   if (swapOutputUsdt) swapOutputUsdt.value = '';
   if (swapMinOutput) swapMinOutput.value = '';
-  const amt = parseFloat(swapInputNear.value || '0');
-  if (isNaN(amt) || amt <= 0) {
-    if (swapOutputUsdt) swapOutputUsdt.value = '0.00';
-    if (swapMinOutput) swapMinOutput.value = '0.00';
+  const amt = swapInputNear.value.trim();
+  if (!Number.isFinite(Number(amt)) || Number(amt) <= 0) {
+    if (swapQuoteStatus) swapQuoteStatus.textContent = 'Enter a positive NEAR amount.';
     return;
   }
   try {
     const dest = swapDestinationWallet ? encodeURIComponent(swapDestinationWallet.value.trim()) : '';
-    const res = await mandateWallet.fetch('/api/swap/quote?amountNear=' + amt + '&destination=' + dest);
+    const res = await mandateWallet.fetch('/api/swap/quote?amountNear=' + encodeURIComponent(amt) + '&destination=' + dest);
     const data = await res.json();
     if (version !== swapQuoteVersion) return;
     if (!res.ok || data.error) throw new Error(data.error || 'Live quote unavailable.');
     if (data) {
-      if (swapOutputUsdt) swapOutputUsdt.value = Number(data.outputUsdt).toFixed(6);
-      if (swapMinOutput) swapMinOutput.value = Number(data.minOutputUsdt).toFixed(6);
-      if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = Number(data.poolLiquidityUsdt).toFixed(2) + ' USDT';
+      if (swapOutputUsdt) swapOutputUsdt.value = formatUsdtAmount(data.outputUsdtExact ?? data.outputUsdt);
+      if (swapMinOutput) swapMinOutput.value = formatUsdtAmount(data.minOutputUsdtExact ?? data.minOutputUsdt);
+      if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = formatUsdtAmount(data.poolLiquidityUsdt) + ' Test USDT';
+      if (swapRateText) swapRateText.textContent = '1 NEAR ≈ ' + Number(data.exchangeRate).toFixed(6) + ' Test USDT';
+      if (swapQuoteSourceText) {
+        swapQuoteSourceText.textContent = data.rateType === 'market_reference_testnet'
+          ? 'Ref Finance market reference · testnet treasury settlement'
+          : data.rateType === 'testnet_dex' ? 'Ref Finance testnet pool ' + data.poolId + ' · reserve-based price'
+          : 'Fixed demonstration rate · testnet treasury settlement';
+      }
+      if (swapFeeText) swapFeeText.textContent = Number(data.feeBps || 0) / 100 + '% · network gas paid separately';
+      swapQuoteExpiresAt = Date.parse(data.expiresAt);
+      if (!Number.isFinite(swapQuoteExpiresAt) || swapQuoteExpiresAt <= Date.now()) throw new Error('Quote expired. Refresh for a current rate.');
+      if (swapQuoteStatus) swapQuoteStatus.textContent = 'Quote observed at ' + new Date(data.quotedAt).toLocaleTimeString() + '. Default minimum allows 2% price movement.';
       swapQuoteReady = true;
       if (btnExecuteSwap) btnExecuteSwap.disabled = swapInFlight;
+      swapQuoteExpiryTimer = setTimeout(() => {
+        if (version !== swapQuoteVersion) return;
+        swapQuoteReady = false;
+        if (btnExecuteSwap) btnExecuteSwap.disabled = true;
+        if (swapQuoteStatus) swapQuoteStatus.textContent = 'Quote expired. Refresh for a current rate.';
+      }, swapQuoteExpiresAt - Date.now());
     }
   } catch (error) {
     if (version !== swapQuoteVersion) return;
-    if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = error.message;
+    if (swapQuoteStatus) swapQuoteStatus.textContent = error.message;
+    if (swapRateText) swapRateText.textContent = 'Quote unavailable';
+    if (swapQuoteSourceText) swapQuoteSourceText.textContent = 'Refresh to fetch a current quote.';
+    if (swapPoolLiquidityText) swapPoolLiquidityText.textContent = '—';
+    if (swapOutputUsdt) swapOutputUsdt.value = '';
+    if (swapMinOutput) swapMinOutput.value = '';
   }
 }
 
@@ -1295,16 +1335,15 @@ async function loadSwapHistory() {
       swapHistoryTableBody.innerHTML = data.swaps.map(s => {
         const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent';
         const isSuccess = s.status === 'payout_confirmed';
-        const statusBadge = isSuccess
-          ? '<span style="color:var(--success); font-weight:600; font-size:11px;">Confirmed</span>'
-          : '<span style="color:var(--danger); font-weight:600; font-size:11px;">Failed</span>';
+        const statusBadge = '<span style="color:var(--' + (isSuccess ? 'success' : s.status === 'failed' ? 'danger' : 'warning') + '); font-weight:600; font-size:11px;">' +
+          (isSuccess ? 'Confirmed' : escapeHtml(s.status.replaceAll('_', ' '))) + '</span>';
         const txLink = s.payoutTxHash
           ? '<a href="https://testnet.nearblocks.io/txns/' + s.payoutTxHash + '" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline; font-family:var(--font-mono); font-size:11px;">' + s.payoutTxHash.slice(0, 8) + '...</a>'
           : '<span style="color:var(--text-muted); font-size:11px;">-</span>';
         return '<tr>' +
           '<td>' + dateStr + '</td>' +
-          '<td><strong>' + Number(s.inputNear).toFixed(2) + ' NEAR</strong></td>' +
-          '<td style="color:var(--success); font-weight:600;">' + (s.outputAmount == null ? '—' : Number(s.outputAmount).toFixed(2) + ' USDT') + '</td>' +
+          '<td><strong>' + escapeHtml(String(s.inputNear)) + ' NEAR</strong></td>' +
+          '<td style="color:var(--success); font-weight:600;">' + (s.outputAmount == null ? '—' : formatUsdtAmount(s.outputAmount) + ' Test USDT') + '</td>' +
           '<td>' + (s.exchangeRate == null ? '—' : '1 NEAR = ' + Number(s.exchangeRate).toFixed(6) + ' USDT') + '</td>' +
           '<td style="font-family:var(--font-mono); font-size:11px;">' + escapeHtml(s.destinationWallet) + '</td>' +
           '<td>' + statusBadge + '</td>' +
@@ -1340,14 +1379,14 @@ function setStepState(stepEl, state) {
 
 if (btnExecuteSwap) {
   btnExecuteSwap.addEventListener('click', async () => {
-    if (!swapQuoteReady || swapInFlight) { showToast('Wait for a current DEX quote.'); return; }
+    if (!swapQuoteReady || swapInFlight || Date.now() >= swapQuoteExpiresAt) { showToast('Refresh the quote for a current swap rate.'); return; }
     if (!swapAuthCheck || !swapAuthCheck.checked) {
       alert('Please check the authorization box to authorize the agent to execute this swap.');
       return;
     }
 
-    const amt = parseFloat(swapInputNear.value || '0');
-    if (isNaN(amt) || amt <= 0) {
+    const amt = swapInputNear.value.trim();
+    if (!Number.isFinite(Number(amt)) || Number(amt) <= 0) {
       alert('Please enter a valid NEAR amount to allocate.');
       return;
     }
@@ -1358,7 +1397,8 @@ if (btnExecuteSwap) {
       return;
     }
 
-    const minOut = parseFloat(swapMinOutput.value || '0');
+    const minOut = swapMinOutput.value.trim();
+    if (!Number.isFinite(Number(minOut)) || Number(minOut) <= 0) { showToast('Enter a positive minimum output.'); return; }
 
     // UI Progress Stepper
     resetStepper();
@@ -1396,8 +1436,8 @@ if (btnExecuteSwap) {
         swapResultBox.style.border = '1px solid var(--success-border)';
         swapResultBox.style.color = 'var(--text-primary)';
         swapResultBox.innerHTML =
-          '<strong>✅ Swap & Payout Confirmed!</strong><br>' +
-          'Swapped funds are now available in your agent wallet.<br>' +
+          '<strong>Swap confirmed</strong><br>' +
+          'Received <strong>' + formatUsdtAmount(data.outputAmount) + ' Test USDT</strong> in your agent wallet.<br>' +
           '<a href="' + data.explorerUrl + '" target="_blank" rel="noopener noreferrer" style="color:var(--success); text-decoration:underline; font-family:var(--font-mono); font-size:11.5px; margin-top:4px; display:inline-block;">View Transaction on NearBlocks ↗</a>';
 
         showToast('Swap confirmed in your agent wallet');

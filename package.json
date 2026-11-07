@@ -1,10 +1,10 @@
 {
   "name": "mandate",
   "version": "0.1.0",
-    "license": "MIT",
+  "license": "MIT",
   "private": true,
   "type": "module",
-  "description": "Autonomous business agent that delegates work, pays for verified deliverables, and enforces user-defined spending limits on NEAR.",
+  "description": "Onchain workspace on NEAR for Unstoppable DeFi, Agent Economy, and Autonomous Business: manage an agent treasury, delegate research, and pay for verified work within user-defined spending limits.",
   "scripts": {
     "build": "node scripts/build-wallet.mjs",
     "postinstall": "npm run build",

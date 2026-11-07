@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { AgentSwapService, TEST_USDT_DISCLAIMER } from './swap.js';
+import { AgentSwapService, TEST_USDT_DISCLAIMER, receivedSwapAmount } from './swap.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -92,7 +92,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
     try {
       const snapshot = await agentWallet.snapshot(userAccount);
       return json(200, { ...snapshot, formatted: Number(snapshot.balanceNear).toFixed(4) + ' NEAR',
-        userQuotaNear: snapshot.balanceNear, formattedUsdt: Number(snapshot.userUsdt).toFixed(2) + ' USDT', operations: await agentWallet.receipts.list(userAccount) });
+        userQuotaNear: snapshot.balanceNear, formattedUsdt: snapshot.userUsdt + ' Test USDT', operations: await agentWallet.receipts.list(userAccount) });
     } catch (e: any) { return json(503, { error: e.message }); }
   }
   if (['/api/wallet/deposit', '/api/wallet/deposit/confirm', '/api/wallet/execute', '/api/wallet/reconcile', '/api/wallet/resume', '/api/treasury', '/api/swap/execute'].includes(url.pathname) && req.method === 'POST') {
@@ -114,11 +114,13 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
           return json(200, { operation });
         }
         const request = url.pathname === '/api/swap/execute'
-          ? { id: payload.id, action: 'swap', asset: payload.asset || 'NEAR', amount: String(payload.inputNear), minOutput: payload.minOutputUsdt ? String(payload.minOutputUsdt) : undefined }
+          ? { id: payload.id, action: 'swap', asset: payload.asset || 'NEAR', amount: String(payload.inputNear), minOutput: payload.minOutputUsdt !== undefined ? String(payload.minOutputUsdt) : undefined }
           : payload;
         if (request.action === 'send' && !(await store.isAllowed(request.recipient || '', userAccount))) throw new Error('Add this recipient to your payable allowlist first.');
         const operation = await agentWallet.execute(userAccount, request);
-        return json(operation.status === 'confirmed' ? 200 : 409, { operation, status: operation.status, txHash: operation.txHashes.at(-1), explorerUrl: operation.txHashes.length ? agentWallet.explorer(operation.txHashes.at(-1)!) : null });
+        return json(operation.status === 'confirmed' ? 200 : 409, { operation, status: operation.status,
+          ...(operation.action === 'swap' ? { outputAmount: receivedSwapAmount(operation), outputAsset: operation.asset === 'NEAR' ? 'Test USDT' : 'NEAR' } : {}),
+          txHash: operation.txHashes.at(-1), explorerUrl: operation.txHashes.length ? agentWallet.explorer(operation.txHashes.at(-1)!) : null });
       } catch (e: any) { return json(400, { error: e.message }); }
     });
     return;
@@ -239,7 +241,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // 5.5 /api/swap (quote, history, execute)
   if (url.pathname === '/api/swap/quote' && req.method === 'GET') {
     try {
-      const amountNear = parseFloat(url.searchParams.get('amountNear') || '1');
+      const amountNear = url.searchParams.get('amountNear') ?? '1';
       const destination = url.searchParams.get('destination') || undefined;
       const quote = await swapService.getQuote(amountNear, destination);
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -252,9 +254,14 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   if (url.pathname === '/api/swap/history' && req.method === 'GET') {
     try {
-      const swaps = (await agentWallet.receipts.list(userAccount)).filter(op => op.action === 'swap' && op.asset === 'NEAR').map(op => ({
-        id: op.id, inputNear: op.amount, outputAmount: op.dex ? (op.dex.actualOutput ? Number(op.dex.actualOutput) / 1e6 : null) : Number(op.amount) * 5, exchangeRate: op.dex ? (op.dex.actualOutput ? Number(op.dex.actualOutput) / 1e6 / Number(op.amount) : null) : 5, destinationWallet: op.recipient,
-        status: op.status === 'confirmed' ? 'payout_confirmed' : op.status, payoutTxHash: op.status === 'confirmed' ? op.txHashes.at(-1) : null, createdAt: op.createdAt }));
+      const swaps = (await agentWallet.receipts.list(userAccount)).filter(op => op.action === 'swap' && op.asset === 'NEAR').map(op => {
+        const outputAmount = receivedSwapAmount(op);
+        return {
+          id: op.id, inputNear: op.amount, outputAmount, exchangeRate: outputAmount === null ? null : Number(outputAmount) / Number(op.amount), destinationWallet: op.recipient,
+          rateType: op.market ? 'market_reference_testnet' : op.dex ? 'testnet_dex' : 'demonstration_rate', priceSource: op.market?.priceSource,
+          status: op.status === 'confirmed' ? 'payout_confirmed' : op.status, payoutTxHash: op.status === 'confirmed' ? op.txHashes.at(-1) : null, createdAt: op.createdAt,
+        };
+      });
       const history = [...swaps, ...store.listSwaps(userAccount)];
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
@@ -311,7 +318,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
         const receipts = operation.txHashes.map(hash => `[View transaction](${agentWallet.explorer(hash)})`).join(' · ');
         return json(200, { type: 'text', operation,
           message: operation.status === 'confirmed'
-            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? (operation.dex ? `Received **${decimal(BigInt(operation.dex.actualOutput!), operation.dex.outputDecimals)} ${command.asset === 'NEAR' ? 'Test USDT' : 'NEAR'}** through the testnet DEX. The funds remain in your agent wallet.\n\n` : 'The swapped funds remain in your agent wallet. This historical swap uses the demonstration treasury.\n\n') : ''}${receipts}`
+            ? `**${command.action.toUpperCase()} confirmed:** ${command.amount} ${command.asset}.\n\n${command.action === 'unstake' ? 'Unstaking has started. Funds return to your agent wallet after the provider cooldown; Mandate checks for available withdrawals while this workspace is open.\n\n' : ''}${command.action === 'swap' ? `Received **${receivedSwapAmount(operation)} ${command.asset === 'NEAR' ? 'Test USDT' : 'NEAR'}** ${operation.market ? 'at the observed NEAR/USDT market rate with testnet treasury settlement' : operation.dex ? 'through the Ref Finance testnet pool' : 'through the fixed-rate demonstration treasury'}. The funds remain in your agent wallet.\n\n` : ''}${receipts}`
             : operation.status === 'failed'
               ? `**Transaction failed:** ${operation.error || 'The transaction was rejected.'}\n\n${receipts}\n\nOperation: \`${operation.id}\`.`
               : `**Transaction needs review:** ${operation.error || operation.status}.\n\n${receipts}\n\nOperation: \`${operation.id}\`. Further spending is paused until its on-chain status is reconciled.` });
@@ -339,7 +346,7 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
       try {
         const wallet = await agentWallet.snapshot(userAccount);
         return json(200, { type: 'text', ...wallet,
-          message: `**Mandate agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${Number(wallet.userUsdt).toFixed(2)} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
+          message: `**Mandate agent wallet:** \`${wallet.accountId}\`\n\nAvailable: **${Number(wallet.balanceNear).toFixed(4)} NEAR** · **${wallet.userUsdt} Test USDT**.\n\nStaked: **${wallet.staking.NEAR.staked} NEAR** · **${wallet.staking.USDT.staked} Test USDT**.\n\nLinked wallet: \`${userAccount}\` · ${wallet.linked.near} NEAR · ${wallet.linked.usdt} Test USDT.` });
       } catch (e: any) { return json(503, { type: 'text', message: e.message }); }
     }
 

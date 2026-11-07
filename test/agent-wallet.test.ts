@@ -5,6 +5,8 @@ import { AgentWallet, units, decimal, confirmedHash, GAS_RESERVE } from '../src/
 import { WalletStore } from '../src/wallet-store.js';
 import { parseWalletCommand } from '../src/wallet-command.js';
 import { TEST_USDT_TOKEN_ID } from '../src/swap.js';
+import * as publicSources from '../src/public-sources.js';
+import { MARKET_PRICE_SOURCE } from '../src/market-swap.js';
 
 const cfg = { network: 'testnet', rpcUrl: 'http://localhost:3999', accountId: 'treasury.testnet', privateKey: KeyPair.fromRandom('ed25519').toString(), yoctoPerCent: 10n ** 21n };
 const owner = 'alice.testnet';
@@ -34,6 +36,7 @@ beforeEach(() => {
     return account.transfer({ receiverId: recipient, amount: actions[0].transfer.deposit });
   });
   vi.spyOn(wallet, 'view').mockImplementation(async (contract, method) => {
+    if (method === 'ft_metadata') return { decimals: 6 };
     if (method === 'storage_balance_of') return { total: '1250000000000000000000' };
     if (method === 'get_position') return { staked: staked.USDT.toString(), unstaked: unstaked.USDT.toString(), withdrawable: mature ? unstaked.USDT.toString() : '0' };
     if (method === 'get_account_staked_balance') return staked.NEAR.toString();
@@ -63,6 +66,11 @@ beforeEach(() => {
 });
 afterEach(() => { db.db.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 const execute = (action: string, asset: 'NEAR' | 'USDT', amount: string, extra = {}) => wallet.execute(owner, { id: `operation-${++serial}`, action, asset, amount, ...extra });
+function marketPrices(price = '3') {
+  vi.stubEnv('SWAP_MODE', '');
+  return vi.spyOn(publicSources, 'loadPublicPage').mockResolvedValue({ url: MARKET_PRICE_SOURCE, contentType: 'application/json',
+    retrievedAt: new Date().toISOString(), body: JSON.stringify({ 'wrap.near': { price }, 'usdt.tether-token.near': { price: '1' } }) });
+}
 
 describe('isolated on-chain agent wallets', () => {
   it('derives stable, distinct signing accounts and never exposes keys in a snapshot', async () => {
@@ -109,6 +117,86 @@ describe('isolated on-chain agent wallets', () => {
     expect(Number(snapshot.balanceNear)).toBe(11);
     expect(Number(snapshot.userUsdt)).toBe(35);
     expect(near.get(owner)).toBe(units('20', 24));
+  });
+  it('settles 0.1 NEAR for exactly 0.3 Test USDT at a live 3 USDT market rate', async () => {
+    marketPrices();
+    const op = await execute('swap', 'NEAR', '0.1');
+    expect(op.status).toBe('confirmed');
+    expect(op.market).toMatchObject({ expectedOutput: '300000', actualOutput: '300000', priceSource: MARKET_PRICE_SOURCE });
+    expect(tokens.get(wallet.identity(owner).accountId)).toBe(units('40.3', 6));
+    expect(tokens.get(cfg.accountId)).toBe(units('999.7', 6));
+    expect(near.get(wallet.identity(owner).accountId)).toBe(units('9.9', 24));
+    expect(tokens.get(owner)).toBe(units('60', 6));
+    expect((await wallet.receipts.get(op.id))?.market?.actualOutput).toBe('300000');
+  });
+  it('uses the same live price when swapping Test USDT back to native NEAR', async () => {
+    marketPrices();
+    const op = await execute('swap', 'USDT', '0.3');
+    expect(op.status).toBe('confirmed');
+    expect(op.market?.actualOutput).toBe(units('0.1', 24).toString());
+    expect(near.get(wallet.identity(owner).accountId)).toBe(units('10.1', 24));
+    expect(tokens.get(wallet.identity(owner).accountId)).toBe(units('39.7', 6));
+  });
+  it('blocks a minimum or missing treasury liquidity before funding a market swap', async () => {
+    marketPrices();
+    await expect(execute('swap', 'NEAR', '0.1', { minOutput: '0.31' })).rejects.toThrow('minimum');
+    tokens.set(cfg.accountId, units('0.2', 6));
+    await expect(execute('swap', 'NEAR', '0.1')).rejects.toThrow('liquidity');
+    expect(wallet.transact).not.toHaveBeenCalled();
+    expect(wallet.call).not.toHaveBeenCalled();
+    expect(near.get(wallet.identity(owner).accountId)).toBe(units('10', 24));
+  });
+  it('blocks an unavailable price feed before moving any input funds', async () => {
+    marketPrices().mockRejectedValue(new Error('feed offline'));
+    await expect(execute('swap', 'NEAR', '0.1')).rejects.toThrow('unavailable');
+    expect(wallet.transact).not.toHaveBeenCalled();
+    expect(wallet.call).not.toHaveBeenCalled();
+  });
+  it('resumes the saved market payout without repricing or funding a second time', async () => {
+    const feed = marketPrices();
+    vi.mocked(wallet.call).mockRejectedValueOnce(new Error('RPC unavailable before signing payout'));
+    const op = await execute('swap', 'NEAR', '0.1');
+    expect(op.status).toBe('needs_review');
+    expect(op.market?.actualOutput).toBeUndefined();
+    feed.mockResolvedValue({ url: MARKET_PRICE_SOURCE, contentType: 'application/json', retrievedAt: new Date().toISOString(),
+      body: JSON.stringify({ 'wrap.near': { price: '6' }, 'usdt.tether-token.near': { price: '1' } }) });
+    expect((await wallet.reconcile(owner, op.id)).status).toBe('funding_confirmed');
+    const resumed = await wallet.resumeSwap(owner, op.id);
+    expect(resumed.status).toBe('confirmed');
+    expect(resumed.market?.actualOutput).toBe('300000');
+    expect(feed).toHaveBeenCalledTimes(1);
+    expect(wallet.transact).toHaveBeenCalledTimes(1);
+    expect(near.get(wallet.identity(owner).accountId)).toBe(units('9.9', 24));
+    expect(tokens.get(wallet.identity(owner).accountId)).toBe(units('40.3', 6));
+    expect(await wallet.execute(owner, { id: op.id, action: 'swap', asset: 'NEAR', amount: '0.1' })).toEqual(resumed);
+  });
+  it('keeps a funded market swap recoverable after a definite payout rejection', async () => {
+    marketPrices();
+    vi.mocked(wallet.call).mockImplementationOnce(async (_account, _contract, _method, _args, _deposit, _gas, op) => {
+      op!.broadcastRejected = true;
+      throw new Error('Payout rejected before broadcast');
+    });
+    const op = await execute('swap', 'NEAR', '0.1');
+    expect(op.status).toBe('funding_confirmed');
+    expect((await wallet.resumeSwap(owner, op.id)).status).toBe('confirmed');
+    expect(tokens.get(wallet.identity(owner).accountId)).toBe(units('40.3', 6));
+  });
+  it('does not reuse an old rejection to clear an ambiguous resumed payout', async () => {
+    marketPrices();
+    vi.mocked(wallet.call).mockImplementationOnce(async (_account, _contract, _method, _args, _deposit, _gas, op) => {
+      op!.broadcastRejected = true;
+      throw new Error('Rejected before broadcast');
+    });
+    const op = await execute('swap', 'NEAR', '0.1');
+    vi.mocked(wallet.call).mockImplementationOnce(async (_account, _contract, _method, _args, _deposit, _gas, resumed) => {
+      resumed!.attempt = { txHash: 'unknown-payout', signerId: cfg.accountId, kind: 'payout' };
+      await wallet.receipts.save(resumed!);
+      throw new Error('Timeout after broadcast');
+    });
+    expect((await wallet.resumeSwap(owner, op.id)).status).toBe('needs_review');
+    vi.spyOn(wallet.provider, 'viewTransactionStatusWithReceipts').mockRejectedValue(new Error('Unknown payout status'));
+    await expect(wallet.reconcile(owner, op.id)).rejects.toThrow('Unknown payout status');
+    expect((await wallet.receipts.get(op.id))?.attempt?.txHash).toBe('unknown-payout');
   });
   it('retains NEAR for gas and rejects insufficient funds before signing', async () => {
     await expect(execute('withdraw', 'NEAR', '10')).rejects.toThrow('Insufficient');

@@ -6,9 +6,8 @@ import { Store } from '../src/db.js';
 import { WalletStore, type WalletOperation } from '../src/wallet-store.js';
 import { AgentWallet, confirmedHash, units } from '../src/agent-wallet.js';
 import { loadNearConfig, assertTestnet } from '../src/near.js';
-import { TEST_USDT_TOKEN_ID } from '../src/swap.js';
+import { TEST_USDT_TOKEN_ID, AgentSwapService, swapMode } from '../src/swap.js';
 import { parseWalletCommand } from '../src/wallet-command.js';
-import { TestnetDex } from '../src/dex.js';
 
 const cfg = loadNearConfig(); assertTestnet(cfg);
 const store = new Store(process.env.MANDATE_DB || 'mandate.db');
@@ -20,13 +19,15 @@ async function command(text: string) {
   const op = await wallet.execute(owner, { ...request, id: 'live-' + randomUUID() });
   console.log(text, op.status, op.error || '');
   assert.equal(op.status, 'confirmed', 'Reconcile operation ' + op.id + ': ' + op.error);
-  receipts.push({ command: text, id: op.id, transactions: op.txHashes.map(h => wallet.explorer(h)), output: op.dex?.actualOutput });
+  receipts.push({ command: text, id: op.id, transactions: op.txHashes.map(h => wallet.explorer(h)), output: (op.market || op.dex)?.actualOutput, priceSource: op.market?.priceSource });
   return op;
 }
 try {
   if (!process.argv.includes('--execute')) {
-    const [near, usdt, quote] = await Promise.all([wallet.position(owner, 'NEAR'), wallet.position(owner, 'USDT'), new TestnetDex(cfg, TEST_USDT_TOKEN_ID).quote('NEAR', '0.1')]);
-    console.log(JSON.stringify({ network: cfg.network, owner, agent, staking: { NEAR: near, USDT: usdt }, quote }, null, 2));
+    const mode = swapMode();
+    const [near, usdt, quote] = await Promise.all([wallet.position(owner, 'NEAR'), wallet.position(owner, 'USDT'),
+      new AgentSwapService().getQuote('0.1')]);
+    console.log(JSON.stringify({ network: cfg.network, owner, agent, swapMode: mode, staking: { NEAR: near, USDT: usdt }, quote }, null, 2));
   } else {
     if (await wallet.receipts.unresolved(owner)) throw new Error('Reconcile existing wallet operations before the live protocol check.');
     if (await wallet.nativeBalance(agent) < units('1', 24)) {
@@ -64,7 +65,9 @@ try {
     if (process.argv.includes('--swap')) {
       const tokenBefore = await wallet.tokenBalance(agent);
       const swap = await command('Swap 0.1 NEAR for USDT');
-      assert.equal(await wallet.tokenBalance(agent) - tokenBefore, BigInt(swap.dex!.actualOutput!));
+      const actualOutput = (swap.market || swap.dex)?.actualOutput;
+      assert(actualOutput, 'Protocol swaps require SWAP_MODE=market or SWAP_MODE=ref with a confirmed output.');
+      assert.equal(await wallet.tokenBalance(agent) - tokenBefore, BigInt(actualOutput));
       const nearBefore = await wallet.nativeBalance(agent);
       await command('Swap 0.1 USDT for NEAR');
       console.log('Native NEAR before/after reverse swap:', nearBefore.toString(), (await wallet.nativeBalance(agent)).toString(), '(includes gas)');

@@ -19,6 +19,7 @@ export interface WalletOperation {
   mandateId?: string;
   taskId?: string;
   dex?: import('./dex.js').DexQuote & { actualOutput?: string; wrappedInput?: boolean; swapConfirmed?: boolean };
+  market?: import('./market-swap.js').MarketSwapQuote & { actualOutput?: string };
   broadcastRejected?: boolean;
 }
 

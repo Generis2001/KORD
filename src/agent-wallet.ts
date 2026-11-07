@@ -4,9 +4,10 @@ import type { Action } from 'near-api-js';
 import type { KeyPairString } from 'near-api-js';
 import { assertNetworkSafety, parseEscrowEvents, type NearConfig } from './near.js';
 import { WalletStore, type WalletOperation } from './wallet-store.js';
-import { TEST_USDT_TOKEN_ID, TEST_USDT_DECIMALS, DEMO_EXCHANGE_RATE, STORAGE_DEPOSIT_YOCTO } from './swap.js';
+import { TEST_USDT_TOKEN_ID, TEST_USDT_DECIMALS, DEMO_EXCHANGE_RATE, STORAGE_DEPOSIT_YOCTO, swapMode } from './swap.js';
 import { units, decimal } from './amounts.js';
 import { TestnetDex, deliveredOutput, type DexQuote } from './dex.js';
+import { TestnetMarketSwap, type MarketSwapQuote } from './market-swap.js';
 export { units, decimal } from './amounts.js';
 
 export type Asset = 'NEAR' | 'USDT';
@@ -26,6 +27,9 @@ export function confirmedHash(result: any) {
 }
 function missingAccount(error: any) {
   return /UNKNOWN_ACCOUNT|does not exist|has never been observed/i.test(error?.message || String(error));
+}
+function fundedSwap(op: WalletOperation) {
+  return op.action === 'swap' && (op.phase === 'payout' || op.dex?.wrappedInput || op.dex?.swapConfirmed);
 }
 
 export class AgentWallet {
@@ -220,8 +224,19 @@ export class AgentWallet {
           if (amount > total && !unstakeAll) throw new Error(action === 'claim' ? 'Unstaked funds are still in the provider cooldown or the amount exceeds available funds.' : 'Amount exceeds your staked balance.');
         }
       }
-      let dex: DexQuote | undefined;
-      if (action === 'swap' && process.env.SWAP_MODE !== 'legacy_demo') {
+      let dex: DexQuote | undefined, market: MarketSwapQuote | undefined;
+      const mode = action === 'swap' ? swapMode() : undefined;
+      if (mode === 'market') {
+        const [quote, metadata] = await Promise.all([
+          new TestnetMarketSwap(this.cfg).quote(asset, request.amount, request.minOutput),
+          this.view(TEST_USDT_TOKEN_ID, 'ft_metadata', {}),
+        ]);
+        if (metadata.decimals !== TEST_USDT_DECIMALS) throw new Error('The configured Test USDT must use 6 decimals.');
+        const liquidity = asset === 'NEAR' ? await this.tokenBalance(this.cfg.accountId) : await this.nativeBalance(this.cfg.accountId) - GAS_RESERVE;
+        if (BigInt(quote.expectedOutput) > liquidity) throw new Error('Insufficient testnet settlement treasury liquidity. No swap was submitted.');
+        if (Date.now() >= Date.parse(quote.expiresAt)) throw new Error('The market quote expired. Refresh the quote before swapping.');
+        market = quote;
+      } else if (mode === 'ref') {
         dex = await new TestnetDex(this.cfg, TEST_USDT_TOKEN_ID, this.view.bind(this)).quote(asset, request.amount, request.minOutput);
       } else if (action === 'swap') {
         const nearAmount = asset === 'NEAR' ? amount : amount * 10n ** 18n / BigInt(DEMO_EXCHANGE_RATE);
@@ -233,6 +248,7 @@ export class AgentWallet {
       }
       const op: WalletOperation = { id: request.id, userAccount: user, action, asset, amount: request.amount, recipient, status: 'pending', phase: action === 'swap' ? 'funding' : 'execution', txHashes: [], createdAt: new Date().toISOString() };
       if (dex) { op.dex = dex; op.phase = asset === 'NEAR' ? 'funding' : 'execution'; }
+      if (market) op.market = market;
       if (['stake', 'unstake', 'claim'].includes(action)) op.contractId = pool;
       await this.receipts.save(op);
       try {
@@ -265,13 +281,14 @@ export class AgentWallet {
           delete op.attempt;
           await this.receipts.save(op);
           result = asset === 'NEAR'
-            ? await this.transferToken(poolAccount, recipient, amount * BigInt(DEMO_EXCHANGE_RATE) / 10n ** 18n, `Mandate swap ${op.id}`, op)
-            : await this.transact(poolAccount, recipient, [actions.transfer(amount * 10n ** 18n / BigInt(DEMO_EXCHANGE_RATE))], op);
+            ? await this.transferToken(poolAccount, recipient, op.market ? BigInt(op.market.expectedOutput) : amount * BigInt(DEMO_EXCHANGE_RATE) / 10n ** 18n, `Mandate swap ${op.id}`, op)
+            : await this.transact(poolAccount, recipient, [actions.transfer(op.market ? BigInt(op.market.expectedOutput) : amount * 10n ** 18n / BigInt(DEMO_EXCHANGE_RATE))], op);
         }
         op.txHashes.push(confirmedHash(result));
+        if (op.market) op.market.actualOutput = op.market.expectedOutput;
         op.status = 'confirmed';
       } catch (error: any) {
-        op.status = op.broadcastRejected ? (op.dex?.wrappedInput || op.dex?.swapConfirmed ? 'funding_confirmed' : 'failed') : 'needs_review'; // Unknown RPC errors can hide a mined transaction.
+        op.status = op.broadcastRejected ? (fundedSwap(op) ? 'funding_confirmed' : 'failed') : 'needs_review'; // Unknown RPC errors can hide a mined transaction.
         op.error = error.message;
       }
       await this.receipts.save(op);
@@ -323,10 +340,10 @@ export class AgentWallet {
       // Recover older saved SDK balance rejections as well as newly typed rejections.
       const rejected = /^Not enough balance for ([a-f0-9]{64}) \(balance: \d+, cost: \d+\)$/.exec(op.error || '');
       if (op.broadcastRejected || (rejected && rejected[1] === op.attempt?.signerId)) {
-        op.status = op.dex?.wrappedInput || op.dex?.swapConfirmed ? 'funding_confirmed' : 'failed';
+        op.status = fundedSwap(op) ? 'funding_confirmed' : 'failed';
         op.broadcastRejected = true;
       } else if (!op.attempt) {
-        op.status = op.dex && (op.dex.wrappedInput || op.dex.swapConfirmed) || op.action === 'swap' && op.phase === 'payout' ? 'funding_confirmed' : 'failed';
+        op.status = fundedSwap(op) ? 'funding_confirmed' : 'failed';
         op.error = 'No transaction was broadcast for this step.';
       } else {
         const result: any = await this.provider.viewTransactionStatusWithReceipts({ txHash: op.attempt.txHash, accountId: op.attempt.signerId, waitUntil: 'FINAL' });
@@ -344,7 +361,7 @@ export class AgentWallet {
             op.phase = 'payout';
             op.status = 'funding_confirmed';
           } else if (op.attempt.kind === 'storage') {
-            op.status = op.dex && (op.dex.wrappedInput || op.dex.swapConfirmed) || op.action === 'swap' && op.phase === 'payout' ? 'funding_confirmed' : 'failed';
+            op.status = fundedSwap(op) ? 'funding_confirmed' : 'failed';
             op.error = 'Token storage was registered. The transfer was not submitted; retry the command.';
           } else if (op.action === 'stake' && op.asset === 'USDT' && BigInt(JSON.parse(Buffer.from(result.status.SuccessValue, 'base64').toString() || '"0"')) !== units(op.amount, 6)) {
             op.status = 'failed';
@@ -356,7 +373,10 @@ export class AgentWallet {
             op.status = 'failed'; op.error = 'Escrow reported payment_failed; funds remain in the contract.';
           } else if (op.action === 'escrow_refund' && Buffer.from(result.status.SuccessValue || '', 'base64').toString() !== 'true') {
             op.status = 'failed'; op.error = 'Escrow refund failed; funds remain in the contract.';
-          } else { op.status = 'confirmed'; delete op.error; }
+          } else {
+            if (op.market) op.market.actualOutput = op.market.expectedOutput;
+            op.status = 'confirmed'; delete op.error;
+          }
         } catch (error: any) {
           const failures = [result.status?.Failure, ...(result.receipts_outcome || []).map((r: any) => r.outcome?.status?.Failure)];
           if (!failures.some(Boolean)) throw error; // Still ambiguous; keep the spending pause.
@@ -394,13 +414,15 @@ export class AgentWallet {
         return op;
       }
       op.status = 'pending'; op.phase = 'payout';
+      delete op.broadcastRejected;
       await this.receipts.save(op);
       try {
         const pool = this.poolAccount();
         const result = op.asset === 'NEAR'
-          ? await this.transferToken(pool, this.identity(user).accountId, amount * 5n / 10n ** 18n, `Mandate swap ${op.id}`, op)
-          : await this.transact(pool, this.identity(user).accountId, [actions.transfer(amount * 10n ** 18n / 5n)], op);
+          ? await this.transferToken(pool, this.identity(user).accountId, op.market ? BigInt(op.market.expectedOutput) : amount * 5n / 10n ** 18n, `Mandate swap ${op.id}`, op)
+          : await this.transact(pool, this.identity(user).accountId, [actions.transfer(op.market ? BigInt(op.market.expectedOutput) : amount * 10n ** 18n / 5n)], op);
         op.txHashes.push(confirmedHash(result));
+        if (op.market) op.market.actualOutput = op.market.expectedOutput;
         op.status = 'confirmed'; delete op.error;
       } catch (error: any) { op.status = 'needs_review'; op.error = error.message; }
       await this.receipts.save(op);

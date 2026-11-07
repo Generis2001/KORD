@@ -1,14 +1,22 @@
 # Mandate
 
-### Autonomous research and wallet agent on NEAR Testnet
+### Onchain treasury, agent payments, and autonomous business on NEAR
 
-**Mandate** helps a business delegate public-source research and manage a separate agent treasury. Users give explicit spending permissions; local specialists retrieve and verify evidence, and an authorized research fee can settle through a NEAR escrow contract. Wallet commands deposit, withdraw, swap, send and stake actual testnet assets, with confirmed transaction receipts.
+**Mandate** is an onchain workspace for **Unstoppable DeFi**, **Agent Economy**, and **Autonomous Business**. A user sets a directive and spending constraints; specialist agents retrieve and verify public-source research, and an explicitly authorized fee settles through NEAR escrow. The same workspace manages a separate agent treasury for deposits, withdrawals, token swaps, payments, and staking, with confirmed testnet transaction receipts.
 
 Hosted testnet demo: **[https://mandateme.vercel.app](https://mandateme.vercel.app)**
 
 ## Judge guide
 
-Built for **NEAR HACKATHON: Build Beyond Boundaries**. The product fits **Autonomous Business** (`business`), **AI Security & Defense** (`security`) and **Agent Economy** (`agents`) through payments for verified research. The repository's commits begin on October 22, 2026, within the October 19–November 14 build window in [HACKATHON.md, Q-001](https://nearhackathon.com/HACKATHON.md). Q-010 permits testnet projects, and Q-011 makes the listed integrations optional.
+Built for **NEAR HACKATHON: Build Beyond Boundaries**, with the requested tracks **Unstoppable DeFi** (`defi`), **Agent Economy** (`agents`), and **Autonomous Business** (`business`). The repository's commits begin on October 22, 2026, within the October 19–November 14 build window in [HACKATHON.md, Q-001](https://nearhackathon.com/HACKATHON.md). Q-010 permits testnet projects, and Q-011 makes the listed integrations optional.
+
+| Track | What to evaluate in Mandate | Where to see it |
+| --- | --- | --- |
+| **Unstoppable DeFi** (`defi`) | Natural-language treasury operations, market-reference testnet swaps, optional Ref Finance pool execution, and staking with on-chain receipts. | **Swap tokens**, **Agent wallet**, and [swap pricing](#testnet-swap-pricing). |
+| **Agent Economy** (`agents`) | Separate specialist roles produce and verify work; a user-authorized research fee pays the researcher through budget-limited NEAR escrow. | Core walkthrough steps 3–5 and **Settlement ledger**. |
+| **Autonomous Business** (`business`) | Research and procurement directives become sourced deliverables, with verification, an approved payee, and spending constraints governing payment. | Agent chat, the expanded research steps, and **Approved payees**. |
+
+These are prototype demonstrations on NEAR testnet. The backend controls the agent signing keys, research uses local specialists, and this version has no cross-chain NEAR Intents execution. Spending restrictions support all three workflows. Public descriptions and the exact requested track array are collected in [SUBMISSION.md](SUBMISSION.md); the organizers apply changes to an existing submission separately.
 
 Use the hosted demo for the browser walkthrough, or follow [Local development setup](#local-development-setup) to run the same app at `http://localhost:3000`. For a check that needs no wallet or blockchain credentials, install dependencies and run `npm run demo`; the [verification commands](#verification-commands) explain its output and the automated checks.
 
@@ -17,7 +25,7 @@ Use the hosted demo for the browser walkthrough, or follow [Local development se
 - Use a current browser with Web Crypto Ed25519 support, and allow the Meteor Wallet popup. Meteor's official SDK supports its web wallet and browser extension.
 - Create or select **your own NEAR testnet account** in [Meteor Wallet](https://wallet.meteorwallet.app). Obtain faucet NEAR from [near-faucet.io](https://near-faucet.io/); have at least 2 testnet NEAR available for the 1 NEAR deposit below, wallet authorization and gas.
 - For local execution, configure the server account as described below. The server/verifier needs its own faucet-funded account for escrow approval gas; it does not fund your browser wallet's deposit.
-- All wallet commands below use **testnet**. Test USDT is `usdt.fakes.testnet`, a development token. Public Ref Finance market research reads mainnet market feeds; those observations do not price this test token.
+- All wallet commands below use **testnet**. Test USDT is `usdt.fakes.testnet`, a development token. Default swaps copy an observed mainnet NEAR/USDT price into testnet treasury payouts. Ref testnet pool execution is an explicit alternative with its own reserve-based price.
 
 ### Core walkthrough: do X → see Y
 
@@ -42,8 +50,8 @@ Start after funding and authorization. Run the NEAR staking steps together so th
 
 | Do X | See Y |
 | --- | --- |
-| Send `Swap 0.1 NEAR for USDT`. | Ref Finance pool 57 executes the trade. The reply reports the actual Test USDT received and links the transaction; the output remains in the agent wallet. 0.1 NEAR is the minimum supported NEAR swap. The output varies with current reserves. |
-| Send `Swap 0.1 USDT for NEAR` after acquiring at least 0.1 Test USDT. | The DEX returns wrapped NEAR and the adapter unwraps it. The reply and ledger provide the swap and native-withdrawal receipts. |
+| Open **Swap tokens**, inspect the current rate and minimum, then swap `0.1 NEAR`; or send `Swap 0.1 NEAR for USDT`. | Default market-reference mode pays the observed equivalent in Test USDT from the settlement treasury. At 3 USDT per NEAR, the payout is **0.300000 Test USDT**. The quote, confirmation, balance, and history retain six token decimals; the actual rate changes with the public feed. 0.1 NEAR is the minimum supported NEAR input. |
+| Send `Swap 0.1 USDT for NEAR` after acquiring at least 0.1 Test USDT. | Default mode pays native NEAR at the observed reciprocal price. With `SWAP_MODE=ref`, the pool returns wrapped NEAR and the adapter unwraps it. Receipts identify the actual settlement path. |
 | Send `Stake 0.1 NEAR`, then `Unstake 0.1 NEAR`. | The staking receipt appears and the agent's staking position increases, then moves into the unstaking balance. Withdrawal waits for the validator's epoch cooldown; it is not an immediate return to available funds. |
 | Once the provider reports funds withdrawable, use **Withdraw unstaked funds** or `Claim 0.1 NEAR` if that amount remains available. | A confirmed withdrawal returns funds to the agent account. An authorized open workspace may already have collected matured funds during its 30-second polling cycle. |
 | Send `Withdraw 0.1 NEAR` while the agent has that amount above its gas reserve. | The withdrawal pays your linked owner account, reduces available agent funds and produces a confirmed receipt. |
@@ -60,7 +68,8 @@ If public feeds are unreachable or required evidence is missing, expect a partia
 | Function-call access keys and NEP-413 message proofs | Meteor installs a browser authentication key scoped to the configured server account and `mandate_auth`. Signed API requests bind the owner, route, body and timestamp, and the backend checks that the key is still installed. Meteor also supports NEP-413 proofs. | [Meteor adapter](src/browser/meteor.ts), [browser request signing](public/wallet.js), [ownership verification](src/wallet-auth.ts) |
 | NEAR smart contracts and native transfers | The user funds escrow from the agent account. The contract enforces budget, cumulative per-agent cap, recipient allowlist, verifier authority and one payout per task; transfer callbacks account for failed payouts and refunds. | [Escrow contract](contract/src/lib.rs), [funding and release adapter](src/escrow.ts) |
 | NEP-141 tokens and NEP-145 storage | Test USDT deposits, sends and staking use token transfer calls, with storage registration when required. Token resolver receipts establish the amount actually accepted. | [Wallet transaction adapters](src/agent-wallet.ts), [Test USDT vault](staking-contract/src/lib.rs) |
-| Ref Finance testnet contracts and wrapped NEAR | Reserve-based swaps use `get_return` and `ft_transfer_call`, a saved minimum output, and separate native wrapping/unwrapping transactions. | [DEX quotes and output receipts](src/dex.ts), [swap execution](src/agent-wallet.ts) |
+| Market-reference testnet treasury settlement | An observed NEAR/USDT price determines an integer-unit payout, saved before funding. Final native and token-transfer receipts establish settlement. | [Market-reference pricing](src/market-swap.ts), [swap execution](src/agent-wallet.ts) |
+| Ref Finance testnet contracts and wrapped NEAR | Optional `SWAP_MODE=ref` swaps use reserve-based `get_return` and `ft_transfer_call`, a saved minimum output, and separate native wrapping/unwrapping transactions. | [DEX quotes and output receipts](src/dex.ts), [swap execution](src/agent-wallet.ts) |
 | Standard NEAR staking-pool interface | The agent stakes with `deposit_and_stake`, unstakes shares, reads live positions and withdraws after the validator cooldown. | [Staking execution and position views](src/agent-wallet.ts) |
 | Final NEAR RPC receipts and NearBlocks | Operations save the signed transaction hash before broadcast and query final outcomes. The ledger and history expose receipts; reconciliation avoids signing a duplicate after an ambiguous response. | [Wallet execution](src/agent-wallet.ts), [durable operations](src/wallet-store.ts), [receipt audit](src/receipt-audit.ts) |
 
@@ -74,8 +83,8 @@ These existing testnet contracts are the defaults for a fresh local setup; no co
 | NEAR validator staking pool | [`kiln.pool.f863973.m0`](https://testnet.nearblocks.io/address/kiln.pool.f863973.m0) | `NEAR_STAKING_POOL_ID`; standard staking-pool methods and epoch cooldown. |
 | Test USDT staking vault | [`usdt.mandate-live-20261029.testnet`](https://testnet.nearblocks.io/address/usdt.mandate-live-20261029.testnet) | `USDT_STAKING_CONTRACT_ID`; token staking with a 60-second unstaking cooldown. |
 | Test USDT token | [`usdt.fakes.testnet`](https://testnet.nearblocks.io/address/usdt.fakes.testnet) | `TEST_USDT_TOKEN_ID`; six-decimal development token used by wallet operations and pool 57. |
-| Ref Finance DEX | [`ref-finance-101.testnet`](https://testnet.nearblocks.io/address/ref-finance-101.testnet) | `TESTNET_DEX_CONTRACT_ID`, `TESTNET_DEX_POOL_ID=57`; pool pairs `wrap.testnet` and `usdt.fakes.testnet`. |
-| Wrapped NEAR | [`wrap.testnet`](https://testnet.nearblocks.io/address/wrap.testnet) | Fixed in the testnet DEX adapter; wraps input NEAR and unwraps reverse-swap output. |
+| Optional Ref Finance DEX | [`ref-finance-101.testnet`](https://testnet.nearblocks.io/address/ref-finance-101.testnet) | `SWAP_MODE=ref`, `TESTNET_DEX_CONTRACT_ID`, `TESTNET_DEX_POOL_ID=57`; pool pairs `wrap.testnet` and `usdt.fakes.testnet`. |
+| Wrapped NEAR | [`wrap.testnet`](https://testnet.nearblocks.io/address/wrap.testnet) | Used by the optional Ref testnet DEX adapter to wrap input NEAR and unwrap reverse-swap output. |
 
 The default research recipient is [`mandate-generis-researcher.testnet`](https://testnet.nearblocks.io/address/mandate-generis-researcher.testnet), configured by `AGENT_RESEARCHER`. The server/verifier is the account supplied in `.env`, and the user's agent address is displayed in **Agent wallet**; these signer accounts are separate from the fixed contracts above. [Recorded live testnet checks](#confirmed-live-testnet-checks) provide example transaction receipts from October 29, 2026.
 
@@ -90,7 +99,7 @@ Mandate runs three separate local specialists under the Orchestrator. No paid mo
 - **Analyst:** builds concise briefs with grouped findings and numbered source citations. Repeated passages and speech padding are removed; investment intentions, plans and targets remain labelled. Business comparisons lead with the recommendation and a compact price table, followed by requested delivery, warranty and other commercial terms. Quantity estimates use exact arithmetic. General research does not produce an irrelevant supplier-price table. Exact supporting excerpts remain available in the folded workflow.
 - **Verifier:** checks retrieved-page integrity, observation timestamps, topic relevance, exact passage provenance, publisher independence, requested evidence coverage and arithmetic. Delivery terms can pass when the actual publisher policy is retrieved. An unanswered criterion triggers further discovery before a partial report and a focused clarification. **Refine request** keeps the research goal in the composer; a fee for the new request must be authorized explicitly.
 
-Try **Research and analyze the benefits and risks of solar energy in Nigeria**, **Research the NEAR consensus mechanism**, or **Find three suppliers of 100 office chairs and compare published prices and delivery terms**. No source links are required. Add links when you have particular publications or suppliers in mind. **Compare NEAR and USDT market prices and pool liquidity on Ref Finance** uses free Ref Finance mainnet feeds; it does not trade or price Mandate Test USDT. Other NEAR questions use topic research rather than being substituted with token prices.
+Try **Research and analyze the benefits and risks of solar energy in Nigeria**, **Research the NEAR consensus mechanism**, or **Find three suppliers of 100 office chairs and compare published prices and delivery terms**. No source links are required. Add links when you have particular publications or suppliers in mind. **Compare NEAR and USDT market prices and pool liquidity on Ref Finance** uses free Ref Finance mainnet feeds and does not place a trade. Swap commands obtain their own current quote. Other NEAR questions use topic research rather than being substituted with token prices.
 
 Public pages may block retrieval or omit facts. Mandate tries alternative discovery and published references, returns only supported passages, and asks for details such as a delivery destination or payment corridor when needed. It cannot guarantee that private or unpublished facts exist online. A verified report establishes source provenance and requested coverage, rather than independently certifying every publisher claim. Deterministic extraction and arithmetic run alongside optional local model reasoning.
 
@@ -152,7 +161,7 @@ Each linked NEAR account has its own Mandate-controlled **implicit NEAR account*
 
 - `Deposit 2 NEAR` or `Deposit 5 USDT`: prepare a transfer for the linked wallet to sign. Deposit NEAR first to activate the agent account and pay network gas. USDT storage registration is included when needed.
 - `Withdraw 2 NEAR` or `Withdraw 5 USDT`: send agent funds back to the linked owner.
-- `Swap 0.1 NEAR for USDT` or `Swap 0.1 USDT for NEAR`: trade on Ref Finance testnet, wrapping/unwrapping native NEAR as needed. Quotes come from current pool reserves and include the pool fee, with a default 2% output tolerance. Funds return to the agent wallet. The Swap panel lets you set an explicit minimum output. Prices change with trades and available testnet liquidity.
+- `Swap 0.1 NEAR for USDT` or `Swap 0.1 USDT for NEAR`: settle at the observed NEAR/USDT market reference on testnet, with a default 2% output tolerance and no swap fee; network gas is separate. Funds return to the agent wallet. The Swap panel shows the rate, source, quote age, and an editable minimum output. Quotes expire after 60 seconds. `SWAP_MODE=ref` instead executes a Ref testnet pool quote, including pool fees and price impact.
 - `Send 2 USDT to alice.testnet` / `Pay 1 NEAR to alice.testnet`: pay from the agent wallet after checking the recipient allowlist. Research uses no paid API. Optional, explicitly requested research fees use the user's agent account through verified testnet escrow.
 - `Stake 1 NEAR` / `Stake 5 USDT`: deposit to the configured staking provider.
 - `Unstake 1 NEAR` / `Unstake 5 USDT`: start the provider's unbonding process. While a workspace authorized with Meteor Wallet remains open, Mandate checks every 30 seconds and collects available funds. When the workspace is closed, collection resumes on reopening; this is not a background scheduling service. `Claim 1 NEAR` or the **Withdraw unstaked funds** control also collects matured funds.
@@ -187,13 +196,19 @@ USDT has no native validator staking mechanism. Its adapter requires a compatibl
 
 A different protocol ABI requires an adapter; entering an arbitrary contract address does not make it compatible. Mainnet has no staking defaults. To deploy your own testnet vault, build `staking-contract` for `wasm32-unknown-unknown` and run `npm run staking:setup`; `-- --redeploy` updates that configured vault without reinitializing its positions.
 
-Ref Finance pool 57 pairs `wrap.testnet` with `usdt.fakes.testnet`. It was funded with 2 faucet NEAR and 10 Test USDT, with a 0.3% pool fee. This is limited testnet liquidity, so use small demo amounts and inspect the quote. No paid service is needed. NEAR Intents does not provide a testnet deployment, so this adapter executes same-chain testnet swaps. The old treasury swap remains available only with the explicit `SWAP_MODE=legacy_demo` compatibility setting.
+### Testnet swap pricing
+
+The default `SWAP_MODE=market` copies the prices of `wrap.near` and `usdt.tether-token.near` from [Ref Finance's public price feed](https://api.ref.finance/list-token-price). For NEAR → Test USDT, the payout is `NEAR amount × NEAR USD price ÷ USDT USD price`, rounded down to six token decimals. The reverse direction uses the reciprocal price and 24 NEAR decimals. For example, if the feed reports NEAR at $3.71 and USDT at $0.999177, **0.1 NEAR quotes 0.371305 Test USDT**. That example is a calculation, not a permanent rate.
+
+These are actual testnet transfers between the user's agent account and the server settlement treasury, not a mainnet trade or a redeemable dollar balance. Fund the server account (`NEAR_ACCOUNT_ID`) with faucet NEAR and Test USDT for this optional demo. Treasury liquidity and the minimum output are checked before accepting the swap input. The feed must be reachable and valid; no fixed rate is substituted on failure. The calculated payout and reference prices are saved before funding, and recovery pays that saved amount even if the market later moves. Confirmation, balances, and history show the actual six-decimal Test USDT amount.
+
+With explicit `SWAP_MODE=ref`, Ref Finance pool 57 pairs `wrap.testnet` with `usdt.fakes.testnet`. It was initially funded with 2 faucet NEAR and 10 Test USDT, with a 0.3% pool fee. Trades change its small reserves, so its faucet-token exchange rate can differ substantially from mainnet NEAR/USDT. It cannot promise the market equivalent. Quotes include the pool fee and price impact, and saved minimum output protects execution. No paid service is needed. NEAR Intents does not provide a testnet deployment; this optional adapter executes same-chain swaps. `SWAP_MODE=legacy_demo` retains the older, explicitly labeled fixed-rate treasury behavior for compatibility.
 
 ### Persistence and interrupted transactions
 
 `wallet_operations` stores confirmed deposit and transaction receipts with idempotency IDs. PostgreSQL is authoritative when `DATABASE_URL`/`POSTGRES_URL` is configured, with advisory locks protecting the user account and shared swap treasury across serverless instances. SQLite supplies persistent receipts and account locks locally. Database failures prevent new signing rather than silently substituting another ledger.
 
-DEX swaps save their quote, minimum output, wrapping step and actual received output. The trade executes through Ref Finance's token callback, while native NEAR wrapping/unwrapping takes separate transactions. Legacy treasury swaps also have separate funding and payout transactions. If a network response is ambiguous, the operation is marked **needs_review**, with available receipts retained. Further spending pauses to avoid duplicate payments. The exact signed transaction hash is saved before broadcast. Use **Check on-chain status** to query that saved hash, then **Resume swap payout** for a conclusively funded swap. A confirmed DEX trade is never repeated: a pending reverse swap resumes only native NEAR unwrapping. Unknown chain status keeps spending paused. Definite balance rejections can be reconciled as failed. Never delete an operation or retry solely because an HTTP request timed out. Back up the wallet derivation secret and database before changes to deployment keys. Historical quota fields in older databases are not used as wallet funds.
+Market-reference swaps save the observed prices, exact payout, minimum output, and separate funding and payout receipts. DEX swaps save their quote, minimum output, wrapping step and actual received output. The trade executes through Ref Finance's token callback, while native NEAR wrapping/unwrapping takes separate transactions. If a network response is ambiguous, the operation is marked **needs_review**, with available receipts retained. Further spending pauses to avoid duplicate payments. The exact signed transaction hash is saved before broadcast. Use **Check on-chain status** to query that saved hash, then **Resume swap payout** for a conclusively funded swap. Recovery never reprices a funded market-reference payout or repeats a confirmed DEX trade; a pending reverse DEX swap resumes only native NEAR unwrapping. Unknown chain status keeps spending paused. Definite balance rejections can be reconciled; a funded input remains eligible for payout recovery. Never delete an operation or retry solely because an HTTP request timed out. Back up the wallet derivation secret and database before changes to deployment keys. Historical quota fields in older databases are not used as wallet funds.
 
 ---
 
@@ -305,11 +320,11 @@ The account and secret-key values above must be replaced locally; the remaining 
 | `ESCROW_CONTRACT_ID` | Optional override; defaults to `mandate-generis-escrow.testnet`. | Research fee funding, approval and refund contract. |
 | `AGENT_RESEARCHER` | Optional override; defaults to `mandate-generis-researcher.testnet`. | Receives the explicit research fee and must be on the owner's approved-payee list. |
 | `VERIFIER_ACCOUNT_ID`, `VERIFIER_PRIVATE_KEY` | Optional paired overrides; otherwise the server account/key is the verifier. | Both values must be set together. The verifier must differ from the paid researcher and have an installed key allowed to call `approve_payment`, plus gas funds. |
-| `TEST_USDT_TOKEN_ID` | Optional; `usdt.fakes.testnet`. | Six-decimal test token. The default DEX pool and staking vault use this token. |
+| `TEST_USDT_TOKEN_ID` | Optional; `usdt.fakes.testnet`. | Six-decimal test token. Market-reference payouts, the optional DEX pool, and the staking vault use this token. |
 | `NEAR_STAKING_POOL_ID` | Optional; `kiln.pool.f863973.m0` on testnet. | Standard NEAR staking-pool provider. |
 | `USDT_STAKING_CONTRACT_ID` | Optional; `usdt.mandate-live-20261029.testnet` for the default test token. | Compatible token staking vault. A different token requires a matching provider. |
 | `TESTNET_DEX_CONTRACT_ID`, `TESTNET_DEX_POOL_ID` | Optional; `ref-finance-101.testnet` and `57`. | Must identify a live simple pool containing `wrap.testnet` and the configured Test USDT token. |
-| `SWAP_MODE` | Leave unset for reserve-based DEX execution. | `legacy_demo` explicitly selects the older fixed-rate treasury adapter. |
+| `SWAP_MODE` | Optional; `market` is the default. | `market` uses a live mainnet price reference for testnet treasury payouts; fund the server account with faucet assets. `ref` explicitly selects reserve-based Ref testnet execution. `legacy_demo` explicitly selects the older fixed-rate treasury adapter. |
 
 Use the existing contract addresses for the judge walkthrough. Deploying a custom escrow or vault is a separate development task; entering an arbitrary address does not implement the required interface.
 
@@ -338,9 +353,9 @@ Expected JSON: `network` is `testnet`, `authReceiver` matches your `NEAR_ACCOUNT
 | `npm run demo` | Public internet access; no account credentials. | Research report, local specialist statuses and verification results; no fee requested. |
 | `npm run agents:check` | Public internet access; SQLite is sufficient. | JSON with retrieved sources, completed specialist roles, verification and `payout.status: not_requested`. Missing required evidence causes a nonzero exit. |
 | `npm run testnet:check` | Valid server `.env`, existing funded account and reachable testnet RPC. | Prints the configured network, RPC, account and current balance. With no `--send` flag, it submits no transaction. |
-| `npm run protocols:check` | Valid server `.env`, reachable RPC and the deployed provider defaults. | JSON with both staking positions and a live 0.1 NEAR DEX quote; no transaction is submitted. |
+| `npm run protocols:check` | Valid server `.env`, reachable RPC and the deployed provider defaults; market mode also reads the public price feed. | JSON with both staking positions, the selected swap mode, and a live 0.1 NEAR quote; no transaction is submitted. |
 | `npm run agents:check -- --escrow-test` | Funded dedicated testnet server account, gas for the verifier and a valid escrow/researcher configuration. | Funds the server account's derived agent with 0.2 NEAR if needed, verifies research and pays a 0.001 NEAR fee. Prints funding/payout receipts and the researcher balance increment; exits nonzero if verification or settlement fails. |
-| `npm run protocols:check -- --execute --staking --swap` | An isolated funded testnet server account with no unresolved operations or pre-existing USDT staking position. Use a separate local database for this check. | Funds its derived agent with 1 NEAR if needed, mints faucet Test USDT, exercises stake/unstake/claim and both swap directions, and prints confirmed receipts. USDT waits for its 60-second cooldown; NEAR remains subject to validator epochs. |
+| `npm run protocols:check -- --execute --staking --swap` | An isolated funded testnet server account with no unresolved operations or pre-existing USDT staking position. Market mode also needs Test USDT in the server settlement account. Use a separate local database for this check; set `SWAP_MODE=ref` to exercise pool execution. | Funds its derived agent with 1 NEAR if needed, mints faucet Test USDT for staking, exercises stake/unstake/claim and both swap directions, and verifies the confirmed output against the agent's token balance increment. USDT waits for its 60-second cooldown; NEAR remains subject to validator epochs. |
 
 The last two commands execute testnet transactions from the server credentials; the browser is not their signer. Use an owned testnet full-access server key for these scripts: automatic agent funding transfers NEAR, and the protocol check calls the token contracts. The protocol check needs more than 1 NEAR in the server account when it must fund its agent, plus token registration and gas. Reconcile any unresolved operation before rerunning a live check. Keep `NEAR_NETWORK=testnet` and `ALLOW_MAINNET=false` for judge reproduction.
 
@@ -372,4 +387,4 @@ The deployed vault source is in `staking-contract/`: [deployment receipt](https:
 ---
 
 ## 📄 License
-MIT License.
+[MIT License](LICENSE). Bundled fonts carry their own licenses in `public/assets/fonts/`.

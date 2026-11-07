@@ -43,21 +43,27 @@ export class TestnetDex {
 /** Only final token-contract receipts prove the output delivered to this agent. */
 export function deliveredOutput(result: any, quote: DexQuote, agent: string): bigint {
   let total = 0n;
+  const seen = new Set<string>();
   for (const receipt of result.receipts_outcome || []) {
+    if (receipt.id && seen.has(receipt.id)) continue;
+    if (receipt.id) seen.add(receipt.id);
     if (receipt.outcome?.executor_id !== quote.tokenOut || receipt.outcome?.status?.Failure) continue;
+    let events = 0n, legacy = 0n;
     for (const log of receipt.outcome.logs || []) {
       if (log.startsWith('EVENT_JSON:')) {
         try {
           const event = JSON.parse(log.slice(11));
           if (event.standard === 'nep141' && event.event === 'ft_transfer') for (const transfer of event.data || []) {
-            if (transfer.old_owner_id === quote.contractId && transfer.new_owner_id === agent) total += BigInt(transfer.amount);
+            if (transfer.old_owner_id === quote.contractId && transfer.new_owner_id === agent) events += BigInt(transfer.amount);
           }
         } catch { /* Unrecognized logs do not establish a payment. */ }
       } else {
         const transfer = /^Transfer (\d+) from (\S+) to (\S+)$/.exec(log);
-        if (transfer && transfer[2] === quote.contractId && transfer[3] === agent) total += BigInt(transfer[1]);
+        if (transfer && transfer[2] === quote.contractId && transfer[3] === agent) legacy += BigInt(transfer[1]);
       }
     }
+    // Some tokens emit both representations of the same transfer in one receipt.
+    total += events > 0n ? events : legacy;
   }
   if (total < BigInt(quote.minOutput)) throw new Error('DEX output receipt is missing or below the saved minimum; reconcile before retrying.');
   return total;
